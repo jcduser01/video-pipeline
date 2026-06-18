@@ -144,6 +144,21 @@ class TestFfmpegCommand(unittest.TestCase):
         self.assertIn("if(lt(t", fg)
         self.assertIn("scale=1080:1920", fg)
 
+    def test_dynamic_filtergraph_not_double_escaped(self):
+        # regression: commas are single-quoted, must NOT also be backslash-escaped
+        subs = [FrameSubject(t=i * 0.5, cx=x, cy=540) for i, x in enumerate([400, 1400, 900])]
+        plan = build_crop_plan(subs, *LANDSCAPE, mode="dynamic", duration=1.5)
+        fg = dynamic_filtergraph(plan)
+        self.assertNotIn("\\,", fg)
+        self.assertIn("x='if(lt(t,", fg)
+
+    def test_dynamic_filtergraph_collapses_constant_x(self):
+        # a stationary subject collapses to a single segment (no conditional)
+        subs = [FrameSubject(t=i * 0.2, cx=960, cy=540) for i in range(6)]
+        plan = build_crop_plan(subs, *LANDSCAPE, mode="dynamic", duration=1.2)
+        fg = dynamic_filtergraph(plan)
+        self.assertNotIn("if(", fg)
+
     def test_command_structure(self):
         plan = self._static_plan()
         cmd = ffmpeg_crop_command("in.mp4", "out.mp4", plan)

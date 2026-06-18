@@ -26,15 +26,30 @@ def static_filtergraph(plan: CropPlan) -> str:
 
 
 def dynamic_filtergraph(plan: CropPlan) -> str:
-    """Piecewise-constant x(t) crop. Each window holds its x until the next."""
+    """Piecewise-constant x(t) crop. Each segment holds its x until the next.
+
+    The x value is single-quoted in the filtergraph, so commas inside the
+    expression are literal — they must NOT also be backslash-escaped (doing both
+    corrupts the filter). Consecutive windows that share the same x are collapsed
+    so the expression stays compact (the plan's dead-band makes many identical).
+    """
     ws = plan.windows
     h = ws[0].h
     cw = ws[0].w
     y = ws[0].y
-    # build nested if() expression: if(lt(t,t1), x0, if(lt(t,t2), x1, ... xN))
-    expr = str(ws[-1].x)
-    for w in reversed(ws[:-1]):
-        expr = f"if(lt(t\\,{w.t_end:.3f})\\,{w.x}\\,{expr})"
+
+    # collapse consecutive equal-x windows into segments: (t_end, x)
+    segs: list = []
+    for w in ws:
+        if segs and segs[-1][1] == w.x:
+            segs[-1] = (w.t_end, w.x)
+        else:
+            segs.append((w.t_end, w.x))
+
+    # nested if(lt(t, t_end), x, <rest>) over segment boundaries
+    expr = str(segs[-1][1])
+    for t_end, x in reversed(segs[:-1]):
+        expr = f"if(lt(t,{t_end:.3f}),{x},{expr})"
     return (
         f"crop=w={cw}:h={h}:x='{expr}':y={y},"
         f"{_scale_filter(plan.out_w, plan.out_h)}"
