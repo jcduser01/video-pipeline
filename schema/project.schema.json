@@ -85,6 +85,61 @@
         "emphasize_glossary_terms": {"type": "boolean", "description": "Flag glossary canonical terms as emphasis words."}
       }
     },
+    "qc": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Safe-zone QC (Phase 4) thresholds + static overlay elements to check. Captions and faces are supplied at runtime; declare persistent brand marks (logo/CTA) here so every render checks them.",
+      "properties": {
+        "occlusion_frac": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.1,
+          "description": "Caption-over-face flag threshold: fraction of a caption box overlapping a detected face."
+        },
+        "face_danger_frac": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.2,
+          "description": "Face-in-danger flag threshold: fraction of a detected face inside the danger region."
+        },
+        "intrusion_frac": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.0,
+          "description": "Danger-intrusion tolerance for protected elements (0 = flag any intrusion)."
+        },
+        "check_caption_over_face": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run the subject-aware caption-over-face check (needs face detection)."
+        },
+        "check_face_in_danger": {
+          "type": "boolean",
+          "default": true,
+          "description": "Flag when the speaker's face drifts into the danger region (e.g. a bad reframe crop)."
+        },
+        "elements": {
+          "type": "array",
+          "description": "Static overlay elements checked on every render (e.g. a fixed logo or CTA).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "x", "y", "width", "height"],
+            "properties": {
+              "kind": {"type": "string", "enum": ["caption", "logo", "cta", "text", "graphic"]},
+              "x": {"type": "number"},
+              "y": {"type": "number"},
+              "width": {"type": "number", "exclusiveMinimum": 0},
+              "height": {"type": "number", "exclusiveMinimum": 0},
+              "label": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
     "metadata": {
       "type": "object",
       "description": "Free-form project metadata (date, hook, render_filename, notes, ...).",

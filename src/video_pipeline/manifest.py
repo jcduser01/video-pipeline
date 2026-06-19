@@ -119,6 +119,36 @@ class Manifest:
 
         return load_caption_style(config_root, self.identity, overrides=self.caption_overrides)
 
+    def qc_config(self) -> Dict[str, Any]:
+        """Resolve the safe-zone QC settings from this manifest's ``qc:`` block.
+
+        Returns a dict of validator knobs (``occlusion_frac``,
+        ``face_danger_frac``, ``intrusion_frac``, ``check_caption_over_face``,
+        ``check_face_in_danger``) plus ``elements`` — a list of static
+        :class:`~video_pipeline.qc.report.QCElement` overlay boxes (logo/CTA)
+        checked on every render. Unset keys fall back to the validator defaults.
+        """
+        from .qc.report import QCElement, Rect
+
+        qc = (self.raw.get("qc") or {}) if self.raw else {}
+        elements = []
+        for e in qc.get("elements") or []:
+            elements.append(
+                QCElement(
+                    kind=e["kind"],
+                    rect=Rect.from_xywh(e["x"], e["y"], e["width"], e["height"]),
+                    label=e.get("label", ""),
+                )
+            )
+        return {
+            "occlusion_frac": float(qc.get("occlusion_frac", 0.1)),
+            "face_danger_frac": float(qc.get("face_danger_frac", 0.2)),
+            "intrusion_frac": float(qc.get("intrusion_frac", 0.0)),
+            "check_caption_over_face": bool(qc.get("check_caption_over_face", True)),
+            "check_face_in_danger": bool(qc.get("check_face_in_danger", True)),
+            "elements": elements,
+        }
+
 
 def _load_schema() -> dict:
     with open(_SCHEMA_PATH, "r", encoding="utf-8") as fh:

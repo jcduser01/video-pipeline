@@ -16,8 +16,9 @@ transitions, and music placement stay with the editor.
 |---|---|---|
 | 1 — Probe | Repo scaffold + project contract; safe-zone spec generator (template PNG → notch-aware polygon/mask); reframe probe (subject tracking → FFmpeg vertical crop) | ✅ accepted on real footage |
 | 2 — Rough cut | Transcription seam (mlx-whisper) + silence fallback; pure proposer (filler / false-start / dead-air, honors `trim_filler`); **editable decision file** (the product); FFmpeg trim/concat render | ✅ accepted on real footage |
-| 3 — Captions | Glossary-corrected 2–4-word chunker (timing layer); **editable caption file** (the product); safe-zone-aware placement; SRT export; **Remotion** styled-overlay renderer (style layer) driven by a props contract; layered caption-style config | ✅ built (pure logic tested; the Remotion render is the local acceptance gate) |
-| 4–6 | Safe-zone QC renderer; FCPXML handoff; source-card overlays | designed; not yet built |
+| 3 — Captions | Glossary-corrected 2–4-word chunker (timing layer); **editable caption file** (the product); safe-zone-aware placement; SRT export; **Remotion** styled-overlay renderer (style layer) driven by a props contract; layered caption-style config | ✅ accepted on real footage |
+| 4 — Safe-zone QC | Validate a frame layout against the derived safe polygon (notch included): flag captions/logos/CTAs intruding on the danger region, captions over the speaker's face, and faces in the danger region; **QC report** (JSON + printable) + **danger-zone preview** + **clean render** | ✅ built (pure logic tested; face detection + FFmpeg burn-in are the local acceptance gate) |
+| 5–6 | FCPXML handoff; source-card overlays | designed; not yet built |
 
 Captions are **two layers, kept separate**: the pipeline owns *timing* (transcript
 → cues, glossary-corrected) and *placement* (a safe-zone-derived box); **Remotion**
@@ -88,6 +89,13 @@ video-pipeline captions source/clip.mp4 -o review/captions.yml --identity <ident
 # 6. Render the styled caption overlay from the (editable) caption file (needs Remotion)
 video-pipeline captions-render review/captions.yml -o out/captions.mov \
     --identity <identity> --safezone config/safezone/reels-9x16.safezone.json
+
+# 7. Safe-zone QC: report + danger-zone preview + clean render
+#    (--no-face-check --dry-run is a fast, native-free geometry check)
+video-pipeline qc out/clip-9x16.mp4 \
+    --safezone config/safezone/reels-9x16.safezone.json \
+    --props work/caption-props.json \
+    --report out/qc-report.json --preview out/qc-preview.mp4
 ```
 
 Captions need real words — supply mlx-whisper (the `[roughcut]` extra) or a cached
@@ -169,7 +177,7 @@ python -m unittest discover -s tests   # stdlib-only fallback (no pytest needed)
 ## Layout
 
 ```
-schema/project.schema.json        project.yml contract (rough_cut + captions blocks)
+schema/project.schema.json        project.yml contract (rough_cut + captions + qc blocks)
 config/safezone/                  template PNG + generated spec
 config/glossary/                  layered caption vocabulary (global + per-identity)
 config/caption-styles/            layered caption style/chunk config (global + per-identity)
@@ -179,10 +187,11 @@ src/video_pipeline/
   reframe/                        tracker (seam) -> crop plan -> ffmpeg command
   roughcut/                       transcript seam -> propose -> decision file -> render
   captions/                       chunk (timing) -> caption file -> placement/export -> Remotion (style)
+  qc/                             validate frame layout vs safe polygon -> report + danger preview + clean
   manifest.py  project.py         project.yml load/validate + scaffolding
   glossary.py  cli.py
 tests/                            unittest/pytest suite (runs without native deps)
-docs/phase1.md  phase2.md  phase3.md   what each phase delivers + acceptance steps
+docs/phase1.md  phase2.md  phase3.md  phase4.md   what each phase delivers + acceptance steps
 ```
 
 Projects are **data**, not code: each lives in its own folder (with `source/` as

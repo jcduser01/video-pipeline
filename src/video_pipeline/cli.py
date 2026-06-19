@@ -26,6 +26,11 @@ Subcommands:
   captions-render <captions.yml> -o <overlay.mov> --identity ID --safezone spec.json
       Rebuild props from a (possibly hand-edited) caption file + style/safe-zone
       config and render the styled caption overlay via Remotion (daily driver).
+
+  qc <input.mp4> --safezone spec.json [--props props.json] [--project DIR]
+      Safe-zone QC: flag captions/logos/CTAs intruding on the danger polygon
+      (notch included) and captions over the speaker's face; write a QC report
+      and a danger-zone preview (daily driver: face detection + FFmpeg burn-in).
 """
 
 from __future__ import annotations
@@ -239,6 +244,59 @@ def _cmd_captions_render(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_qc(args: argparse.Namespace) -> int:
+    from .qc.runner import run_qc
+
+    # Pull thresholds + static brand-mark elements from project.yml if given.
+    extra_elements = []
+    knobs = dict(
+        occlusion_frac=args.occlusion_frac,
+        face_danger_frac=args.face_danger_frac,
+        intrusion_frac=args.intrusion_frac,
+        check_caption_over_face=not args.no_face_check,
+        check_face_in_danger=not args.no_face_check,
+    )
+    if args.project:
+        from .manifest import load_manifest
+
+        cfg = load_manifest(args.project).qc_config()
+        extra_elements = cfg["elements"]
+        # project.yml values are the baseline; explicit CLI flags override below.
+        for k in ("occlusion_frac", "face_danger_frac", "intrusion_frac"):
+            if getattr(args, k) is None:
+                knobs[k] = cfg[k]
+    # Fall back to validator defaults for any threshold still unset.
+    knobs["occlusion_frac"] = knobs["occlusion_frac"] if knobs["occlusion_frac"] is not None else 0.1
+    knobs["face_danger_frac"] = knobs["face_danger_frac"] if knobs["face_danger_frac"] is not None else 0.2
+    knobs["intrusion_frac"] = knobs["intrusion_frac"] if knobs["intrusion_frac"] is not None else 0.0
+
+    report = run_qc(
+        args.input,
+        args.safezone,
+        props_path=args.props,
+        extra_elements=extra_elements,
+        report_out=args.report,
+        preview_out=args.preview,
+        clean_out=args.clean,
+        detect_faces=not args.no_face_check,
+        tracker_name=args.tracker,
+        dry_run=args.dry_run,
+        **knobs,
+    )
+    print(report.to_text(), end="")
+    if args.report:
+        print(f"wrote QC report -> {args.report}")
+    if args.preview:
+        action = "would render (dry run)" if args.dry_run else "rendered"
+        print(f"{action} danger-zone preview -> {args.preview}")
+    if args.clean:
+        action = "would render (dry run)" if args.dry_run else "rendered"
+        print(f"{action} clean render -> {args.clean}")
+    if args.strict and not report.passed:
+        return 1
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="video-pipeline", description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
@@ -379,6 +437,34 @@ def build_parser() -> argparse.ArgumentParser:
     cr.add_argument("--dry-run", action="store_true",
                     help="print the Remotion command without rendering")
     cr.set_defaults(func=_cmd_captions_render)
+
+    q = sub.add_parser("qc", help="safe-zone QC: report + danger-zone preview + clean render")
+    q.add_argument("input", help="the rendered/composited clip to check (profile frame)")
+    q.add_argument("--safezone", required=True, help="safe-zone spec JSON")
+    q.add_argument("--props", default=None,
+                   help="Remotion caption props JSON (checks each cue's box vs the safe zone)")
+    q.add_argument("--project", default=None,
+                   help="project.yml (or its dir): pulls qc: thresholds + static elements")
+    q.add_argument("--report", default=None, help="write the QC report JSON here")
+    q.add_argument("--preview", default=None,
+                   help="write the danger-zone preview (overlay burned in) here")
+    q.add_argument("--clean", default=None,
+                   help="write the clean render (stream-copied deliverable) here")
+    q.add_argument("--tracker", default="opencv", choices=["opencv", "mediapipe"],
+                   help="face detector for the subject-aware checks (default opencv)")
+    q.add_argument("--no-face-check", action="store_true",
+                   help="skip face detection (geometry-only: danger intrusion)")
+    q.add_argument("--occlusion-frac", type=float, default=None,
+                   help="caption-over-face overlap threshold (default 0.10)")
+    q.add_argument("--face-danger-frac", type=float, default=None,
+                   help="face-in-danger threshold (default 0.20)")
+    q.add_argument("--intrusion-frac", type=float, default=None,
+                   help="danger-intrusion tolerance for protected elements (default 0)")
+    q.add_argument("--strict", action="store_true",
+                   help="exit non-zero if QC does not pass (for automation gates)")
+    q.add_argument("--dry-run", action="store_true",
+                   help="compute + write the report but do not run FFmpeg renders")
+    q.set_defaults(func=_cmd_qc)
 
     return p
 
