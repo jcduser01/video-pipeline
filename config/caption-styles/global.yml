@@ -3,7 +3,7 @@
 # project.yml `captions:` block overrides both. See README.md.
 
 # ── style layer (Remotion) ──
-font_family: "Archivo"
+font_family: "Helvetica"   # default sans-serif; falls back to Arial/sans, never serif
 font_size: 96
 font_weight: 800
 fill_color: "#FFFFFF"

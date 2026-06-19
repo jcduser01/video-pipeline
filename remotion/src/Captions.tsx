@@ -65,7 +65,9 @@ const CueBlock: React.FC<{
     >
       <div
         style={{
-          fontFamily: style.font_family,
+          // Sans-serif fallback chain: a missing named font degrades to
+          // Helvetica/Arial/sans, never to the browser's serif default.
+          fontFamily: `${style.font_family}, Helvetica, Arial, sans-serif`,
           fontSize: style.font_size,
           fontWeight: style.font_weight,
           color: style.fill_color,
@@ -74,6 +76,10 @@ const CueBlock: React.FC<{
           textAlign: "center",
           lineHeight: 1.05,
           textTransform: style.uppercase ? "uppercase" : "none",
+          // Balance multi-line cues by line width (real font metrics) instead of
+          // greedy wrapping — avoids a single word stranded on the last line.
+          maxWidth: "100%",
+          textWrap: "balance",
         }}
       >
         {cue.words.map((w, i) => {

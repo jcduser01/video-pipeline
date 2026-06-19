@@ -36,7 +36,7 @@ class CaptionStyle:
     """
 
     # ── style layer (Remotion) ──
-    font_family: str = "Archivo"
+    font_family: str = "Helvetica"
     font_size: int = 96
     font_weight: int = 800
     fill_color: str = "#FFFFFF"

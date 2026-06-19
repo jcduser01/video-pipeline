@@ -16,7 +16,7 @@ const defaultProps: CaptionProps = {
   dimensions: { width: 1080, height: 1920 },
   safeBox: { x: 70, y: 1100, width: 800, height: 360 },
   style: {
-    font_family: "Archivo",
+    font_family: "Helvetica",
     font_size: 96,
     font_weight: 800,
     fill_color: "#FFFFFF",

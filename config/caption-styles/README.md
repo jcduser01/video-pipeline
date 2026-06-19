@@ -23,7 +23,7 @@ layers to the built-in `CaptionStyle` defaults.
 
 | Key | Meaning |
 | --- | --- |
-| `font_family` | Caption typeface (must be installed / bundled for Remotion). |
+| `font_family` | Caption typeface (default `Helvetica`). Falls back to Helvetica/Arial/sans-serif if the named font isn't installed, so a missing font never renders as serif. Set a serif here only when you deliberately want one. |
 | `font_size` | Cap height in px at the profile's native height (e.g. 1920). |
 | `font_weight` | Numeric weight (400–900). |
 | `fill_color` | Text fill (hex). |

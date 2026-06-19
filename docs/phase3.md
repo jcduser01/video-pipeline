@@ -40,7 +40,10 @@ media ─▶ transcribe ─▶ chunk (glossary) ─▶ caption file ─┬▶ SR
    frame-accurate `from`/`durationInFrames` + emphasis indices.
 6. **Remotion** (`remotion/`, Node/React, daily driver) renders the styled overlay
    from those props — **ProRes 4444 with alpha**, composited over the reframed
-   video in the editor (or onto a labelled FCPXML track in Phase 5).
+   video in the editor (or onto a labelled FCPXML track in Phase 5). Multi-line
+   cues are balanced (`text-wrap: balance`, using real font metrics) so a word is
+   never stranded alone on the last line; the default typeface is Helvetica with a
+   sans-serif fallback chain (a missing font never renders as serif).
 
 ## Breaking (the chunker)
 
