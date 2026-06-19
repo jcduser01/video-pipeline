@@ -61,6 +61,27 @@
         }
       }
     },
+    "captions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-project caption style/chunk overrides over config/caption-styles/ (project wins over identity wins over global). Unset keys fall through to the layers, then built-in defaults.",
+      "properties": {
+        "font_family": {"type": "string", "description": "Caption typeface (installed/bundled for Remotion)."},
+        "font_size": {"type": "integer", "exclusiveMinimum": 0, "description": "Cap height in px at the profile's native height."},
+        "font_weight": {"type": "integer", "minimum": 100, "maximum": 900},
+        "fill_color": {"type": "string", "description": "Text fill (hex)."},
+        "stroke_color": {"type": "string", "description": "Outline colour (hex)."},
+        "stroke_width": {"type": "integer", "minimum": 0, "description": "Outline width (px)."},
+        "emphasis_color": {"type": "string", "description": "Fill for emphasis words (hex)."},
+        "uppercase": {"type": "boolean", "description": "Force-uppercase the rendered text."},
+        "position": {"type": "string", "enum": ["upper-third", "center", "lower-third"], "description": "Vertical anchor inside the safe zone."},
+        "max_words": {"type": "integer", "minimum": 1, "description": "Max words per cue (chunker)."},
+        "min_words": {"type": "integer", "minimum": 1, "description": "Min words per cue before a soft break (chunker)."},
+        "max_chars": {"type": "integer", "minimum": 1, "description": "Hard character cap per cue (chunker)."},
+        "max_gap_s": {"type": "number", "exclusiveMinimum": 0, "description": "Inter-word gap (s) that forces a cue break (chunker)."},
+        "emphasize_glossary_terms": {"type": "boolean", "description": "Flag glossary canonical terms as emphasis words."}
+      }
+    },
     "metadata": {
       "type": "object",
       "description": "Free-form project metadata (date, hook, render_filename, notes, ...).",

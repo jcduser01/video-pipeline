@@ -1,0 +1,7 @@
+# Identity caption style — Dyson Hope (DJ / artist).
+# Family register: industrial/techno-flyer brutalism, periwinkle-violet accent
+# (#9C97F4) — see knowledge/clients/dyson-hope-family/. Overrides global only.
+
+font_family: "Archivo"
+emphasis_color: "#9C97F4"
+position: lower-third

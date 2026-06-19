@@ -104,6 +104,21 @@ class Manifest:
             ),
         )
 
+    @property
+    def caption_overrides(self) -> Dict[str, Any]:
+        """The project's ``captions:`` block (style/chunk overrides), or ``{}``.
+
+        Passed to ``load_caption_style`` as the highest-precedence layer over the
+        repo's ``config/caption-styles/`` global + identity files.
+        """
+        return dict((self.raw.get("captions") or {})) if self.raw else {}
+
+    def caption_style(self, config_root):
+        """Resolve this project's :class:`CaptionStyle` (lazily imported)."""
+        from .captions.style import load_caption_style
+
+        return load_caption_style(config_root, self.identity, overrides=self.caption_overrides)
+
 
 def _load_schema() -> dict:
     with open(_SCHEMA_PATH, "r", encoding="utf-8") as fh:

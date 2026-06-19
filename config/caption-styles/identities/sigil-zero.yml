@@ -1,0 +1,8 @@
+# Identity caption style — SIGIL.ZERO (record label brand).
+# Cooler than Dyson Hope in the family palette. Overrides global only.
+
+font_family: "IBM Plex Mono"
+font_weight: 700
+emphasis_color: "#7C97F4"
+uppercase: true
+position: lower-third

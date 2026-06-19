@@ -1,0 +1,11 @@
+# Identity caption style — Jason Cook Design (consulting / tech content).
+# Editorial-modern, restrained; tech reels read denser, so a wider char cap and
+# sentence-case. Overrides global only.
+
+font_family: "Inter"
+font_weight: 700
+fill_color: "#FFFFFF"
+emphasis_color: "#4DA3FF"
+uppercase: false
+position: lower-third
+max_chars: 30

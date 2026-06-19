@@ -1,0 +1,21 @@
+# Global caption style layer — shared defaults across every identity.
+# Per-identity files in identities/<identity>.yml override these; a project's
+# project.yml `captions:` block overrides both. See README.md.
+
+# ── style layer (Remotion) ──
+font_family: "Archivo"
+font_size: 96
+font_weight: 800
+fill_color: "#FFFFFF"
+stroke_color: "#000000"
+stroke_width: 8
+emphasis_color: "#FFE14D"
+uppercase: true
+position: lower-third
+
+# ── timing layer (chunker) ──
+max_words: 4
+min_words: 2
+max_chars: 24
+max_gap_s: 0.6
+emphasize_glossary_terms: true

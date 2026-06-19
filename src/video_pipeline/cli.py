@@ -16,6 +16,16 @@ Subcommands:
 
   roughcut-render <decision.yml> -i <input.mp4> -o <cut.mp4>
       Re-render the rough cut from a (possibly hand-edited) decision file.
+
+  captions <input.mp4> -o <captions.yml> --identity ID [--transcript whisper.json]
+      Transcribe (daily driver: mlx-whisper unless --transcript) -> glossary-
+      corrected 2-4-word cues -> editable caption file. --srt / --props also emit
+      a portable SRT and the Remotion style-layer props (the latter needs a
+      safe-zone spec via --safezone). --render also renders the styled overlay.
+
+  captions-render <captions.yml> -o <overlay.mov> --identity ID --safezone spec.json
+      Rebuild props from a (possibly hand-edited) caption file + style/safe-zone
+      config and render the styled caption overlay via Remotion (daily driver).
 """
 
 from __future__ import annotations
@@ -31,6 +41,10 @@ _PROFILE_DIMS = {
     "feed-square-1x1": (1080, 1080),
     "feed-landscape-16x9": (1920, 1080),
 }
+
+# Repo config/ dir (holds glossary/ + caption-styles/ + safezone/). cli.py is at
+# src/video_pipeline/cli.py -> parents[2] = repo root.
+_DEFAULT_CONFIG_ROOT = Path(__file__).resolve().parents[2] / "config"
 
 
 def _cmd_safezone_gen(args: argparse.Namespace) -> int:
@@ -141,6 +155,76 @@ def _cmd_roughcut_render(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_captions(args: argparse.Namespace) -> int:
+    from .captions.runner import make_captions
+
+    transcriber = None
+    if not args.transcript:
+        # Captions need real words; the silence fallback has none. mlx-whisper only.
+        from .roughcut.transcript import MLXWhisperTranscriber
+        transcriber = MLXWhisperTranscriber(model=args.model, offline=not args.online)
+
+    track = make_captions(
+        args.input,
+        caption_out=args.output,
+        identity=args.identity,
+        profile=args.profile,
+        config_root=args.config_root,
+        transcript_json=args.transcript,
+        transcriber=transcriber,
+        srt_out=args.srt,
+        props_out=args.props,
+        safezone_spec_path=args.safezone,
+        fps=args.fps,
+    )
+    kept = track.kept()
+    print(
+        f"wrote {args.output}  cues={len(track.cues)}  kept={len(kept)}  "
+        f"identity={args.identity}  profile={args.profile}"
+    )
+    if args.srt:
+        print(f"wrote SRT -> {args.srt}")
+    if args.props:
+        print(f"wrote Remotion props -> {args.props}")
+    if args.render:
+        from .captions.remotion import render_overlay
+        cmd = render_overlay(args.props, args.render, dry_run=args.dry_run)
+        action = "would render (dry run)" if args.dry_run else "rendered"
+        print(f"{action} overlay -> {args.render}")
+        if args.dry_run:
+            print("  " + " ".join(cmd))
+    return 0
+
+
+def _cmd_captions_render(args: argparse.Namespace) -> int:
+    from pathlib import Path as _P
+
+    from .captions.cue import CaptionTrack
+    from .captions.export import build_props_from_safezone, write_remotion_props
+    from .captions.remotion import render_overlay
+    from .captions.style import load_caption_style
+    from .safezone.spec import SafeZoneSpec
+
+    track = CaptionTrack.read(args.decision).reindex()
+    identity = args.identity or track.identity
+    if not identity:
+        print("error: --identity required (caption file has no identity)", file=sys.stderr)
+        return 2
+    style = load_caption_style(args.config_root, identity)
+    spec = SafeZoneSpec.from_json(_P(args.safezone).read_text(encoding="utf-8"))
+    props = build_props_from_safezone(track, style, spec, fps=args.fps)
+
+    props_path = args.props or str(_P(args.output).with_suffix(".props.json"))
+    write_remotion_props(props, props_path)
+    cmd = render_overlay(props_path, args.output, dry_run=args.dry_run)
+    if args.dry_run:
+        print("remotion command (dry run):")
+        print("  " + " ".join(cmd))
+    else:
+        print(f"wrote {args.output}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="video-pipeline", description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
@@ -224,6 +308,51 @@ def build_parser() -> argparse.ArgumentParser:
     rr.add_argument("--dry-run", action="store_true",
                     help="print the FFmpeg command without rendering")
     rr.set_defaults(func=_cmd_roughcut_render)
+
+    c = sub.add_parser("captions",
+                       help="transcript -> glossary-corrected cues -> editable caption file")
+    c.add_argument("input")
+    c.add_argument("-o", "--output", required=True, help="caption file path (.yml)")
+    c.add_argument("--identity", required=True,
+                   help="glossary + caption-style identity layer (e.g. dyson-hope)")
+    c.add_argument("--profile", default="reels-9x16")
+    c.add_argument("--transcript", default=None,
+                   help="precomputed Whisper-shaped JSON; skips transcription "
+                        "(reuses the rough-cut phase's cached work/ transcript)")
+    c.add_argument("--srt", default=None, help="also write a portable SRT here")
+    c.add_argument("--props", default=None,
+                   help="also write Remotion style-layer props JSON here "
+                        "(requires --safezone)")
+    c.add_argument("--safezone", default=None,
+                   help="safe-zone spec JSON (for --props caption-box placement)")
+    c.add_argument("--render", default=None,
+                   help="also render the styled overlay here via Remotion "
+                        "(daily driver; requires --props)")
+    c.add_argument("--fps", type=int, default=30, help="frame rate for props (default 30)")
+    c.add_argument("--config-root", default=str(_DEFAULT_CONFIG_ROOT),
+                   help="repo config/ dir (glossary + caption-styles)")
+    c.add_argument("--model", default=None,
+                   help="[mlx-whisper] HF model repo (default whisper-large-v3-turbo)")
+    c.add_argument("--online", action="store_true",
+                   help="[mlx-whisper] allow the one-time model download (default offline)")
+    c.add_argument("--dry-run", action="store_true",
+                   help="with --render, print the Remotion command without running it")
+    c.set_defaults(func=_cmd_captions)
+
+    cr = sub.add_parser("captions-render",
+                        help="render a styled caption overlay from a caption file (Remotion)")
+    cr.add_argument("decision", help="caption file path (.yml)")
+    cr.add_argument("-o", "--output", required=True, help="overlay output path (.mov)")
+    cr.add_argument("--identity", default=None,
+                    help="caption-style identity (default: from the caption file)")
+    cr.add_argument("--safezone", required=True, help="safe-zone spec JSON")
+    cr.add_argument("--props", default=None,
+                    help="props JSON path to write (default: alongside output)")
+    cr.add_argument("--fps", type=int, default=30)
+    cr.add_argument("--config-root", default=str(_DEFAULT_CONFIG_ROOT))
+    cr.add_argument("--dry-run", action="store_true",
+                    help="print the Remotion command without rendering")
+    cr.set_defaults(func=_cmd_captions_render)
 
     return p
 
