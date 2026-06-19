@@ -43,11 +43,21 @@ on the editing/render machine rather than in CI:
 ```bash
 pip install -e .            # core: numpy, Pillow, PyYAML, jsonschema
 pip install -e '.[reframe]' # native extras: mediapipe, opencv-python
+pip install -e '.[roughcut]'# transcription extra: mlx-whisper (Apple-Silicon)
 pip install -e '.[dev]'     # pytest
 ```
 
 The core install and the test suite need **no** native MediaPipe/OpenCV build; the
-reframe probe's real run does.
+reframe probe and transcription do.
+
+**Using `uv`?** `make ready` rebuilds everything outside git after a fresh pull —
+the Python environment with all extras (`uv sync --all-extras`) and the Remotion
+renderer's `node_modules` (`npm install`). Run it whenever you pull a new version
+or reset the working tree. `make test` runs the suite; `make` lists the targets.
+
+> Note: a bare `uv sync` / `uv run` installs only the default dependencies — it
+> **skips the optional extras**, so `mlx-whisper` won't be present. Use `make
+> ready` (or `uv sync --all-extras`) so transcription works.
 
 ## Usage
 
