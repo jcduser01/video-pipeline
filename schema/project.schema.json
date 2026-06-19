@@ -75,10 +75,12 @@
         "emphasis_color": {"type": "string", "description": "Fill for emphasis words (hex)."},
         "uppercase": {"type": "boolean", "description": "Force-uppercase the rendered text."},
         "position": {"type": "string", "enum": ["upper-third", "center", "lower-third"], "description": "Vertical anchor inside the safe zone."},
-        "max_words": {"type": "integer", "minimum": 1, "description": "Max words per cue (chunker)."},
-        "min_words": {"type": "integer", "minimum": 1, "description": "Min words per cue before a soft break (chunker)."},
+        "max_words": {"type": "integer", "minimum": 1, "description": "Max words per cue (chunker). With min_words, this is the words-per-cue range: 1/1 = single-word captions, 2/4 = phrase groups."},
+        "min_words": {"type": "integer", "minimum": 1, "description": "Min words per cue; below this a cue is a 'widow' the chunker avoids (unless min_words is 1, which permits single-word cues)."},
         "max_chars": {"type": "integer", "minimum": 1, "description": "Hard character cap per cue (chunker)."},
         "max_gap_s": {"type": "number", "exclusiveMinimum": 0, "description": "Inter-word gap (s) that forces a cue break (chunker)."},
+        "target_words": {"type": "integer", "minimum": 0, "description": "Words-per-cue the chunker aims for (balance target). 0 = auto (midpoint of the range). If set, must lie within [min_words, max_words]."},
+        "break_words": {"type": "array", "items": {"type": "string"}, "description": "Override the built-in function-word list the chunker prefers to break before / avoid breaking after (phrase-aware breaking)."},
         "emphasize_glossary_terms": {"type": "boolean", "description": "Flag glossary canonical terms as emphasis words."}
       }
     },

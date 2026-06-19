@@ -31,11 +31,28 @@ layers to the built-in `CaptionStyle` defaults.
 | `emphasis_color` | Fill for emphasis words (glossary terms / ALL-CAPS). |
 | `uppercase` | Force-uppercase the rendered text (timing/text data unchanged). |
 | `position` | Vertical anchor inside the safe zone: `lower-third`, `center`, `upper-third`. |
-| `max_words` / `min_words` | Words per cue (the chunker's target band). |
+| `max_words` / `min_words` | Words-per-cue **range** — the primary chunking control (see below). |
+| `target_words` | Words-per-cue the chunker aims for (balance target). `0` = auto (midpoint of the range). |
 | `max_chars` | Hard character cap per cue. |
 | `max_gap_s` | Inter-word gap (s) that forces a cue break (a natural pause). |
+| `break_words` | Optional override of the built-in function-word list used for phrase-aware breaking. |
 | `emphasize_glossary_terms` | Flag glossary canonical terms as emphasis words. |
 
-The `max_words` / `min_words` / `max_chars` / `max_gap_s` keys feed the **chunker**
-(they shape timing-layer grouping); the rest feed the **Remotion style layer**.
-Keeping them in one file means "how captions read and look" is one decision.
+### The range is the mode
+
+`min_words` / `max_words` is one parameterizable control, not two discrete modes:
+
+- `1` / `1` → **single-word** captions (one word per cue, word-by-word).
+- `2` / `4` → **phrase-aware groups** (the default).
+- `1` / `2`, `2` / `3`, … → anything in between.
+
+The chunker breaks **phrase-aware and balanced** within the range: it favours
+even cue widths, avoids one-word widows (when `min_words > 1`), and prefers to
+break *before* function words ("the", "and", "I") rather than stranding them. At
+`1`/`1` every word is its own cue and those refinements simply have nothing to act
+on — so the same control expresses every density without a `mode` switch.
+
+The `max_words` / `min_words` / `target_words` / `max_chars` / `max_gap_s` /
+`break_words` keys feed the **chunker** (timing-layer grouping); the rest feed the
+**Remotion style layer**. Keeping them in one file means "how captions read and
+look" is one decision.

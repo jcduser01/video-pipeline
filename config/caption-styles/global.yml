@@ -14,8 +14,16 @@ uppercase: true
 position: lower-third
 
 # ── timing layer (chunker) ──
+# min_words/max_words is the words-per-cue RANGE — the primary control.
+#   1 / 1  -> single-word (word-by-word) captions
+#   2 / 4  -> phrase-aware groups (default)
+#   1 / 2  -> mostly singles, pairs when they read better
+# The chunker breaks phrase-aware and balanced within the range; at 1/1 it just
+# emits one word per cue. There is no separate "mode" — set the range.
 max_words: 4
 min_words: 2
 max_chars: 24
 max_gap_s: 0.6
+target_words: 0          # 0 = auto (midpoint of the range); the balance target
+# break_words: []        # optional: override the built-in function-word list
 emphasize_glossary_terms: true

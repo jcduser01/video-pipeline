@@ -47,11 +47,18 @@ class CaptionStyle:
     position: str = "lower-third"
 
     # ── timing layer (chunker) ──
+    # min_words / max_words are the words-per-cue RANGE — the primary control.
+    # 1/1 = single-word (word-by-word) captions; 2/4 = phrase-aware groups; any
+    # other range (e.g. 1/2) works too. There is no separate "mode".
     max_words: int = 4
     min_words: int = 2
     max_chars: int = 24
     max_gap_s: float = 0.6
     emphasize_glossary_terms: bool = True
+    # 0 = auto (midpoint of the range); the chunker aims cue lengths at this.
+    target_words: int = 0
+    # empty = built-in English function-word set (chunk.DEFAULT_BREAK_WORDS).
+    break_words: tuple = ()
 
     def __post_init__(self):
         if self.position not in POSITIONS:
@@ -63,6 +70,13 @@ class CaptionStyle:
                 f"need 1 <= min_words <= max_words "
                 f"(got min={self.min_words}, max={self.max_words})"
             )
+        if self.target_words and not (self.min_words <= self.target_words <= self.max_words):
+            raise ValueError(
+                f"target_words {self.target_words} must be within "
+                f"[{self.min_words}, {self.max_words}] (or 0 for auto)"
+            )
+        # normalise break_words to a tuple (config may hand us a list)
+        object.__setattr__(self, "break_words", tuple(self.break_words or ()))
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -80,6 +94,7 @@ class CaptionStyle:
             "max_chars": self.max_chars,
             "max_gap_s": self.max_gap_s,
             "emphasize_glossary_terms": self.emphasize_glossary_terms,
+            "target_words": self.target_words,
         }
 
 
@@ -100,6 +115,8 @@ _COERCE = {
     "max_chars": int,
     "max_gap_s": float,
     "emphasize_glossary_terms": bool,
+    "target_words": int,
+    "break_words": lambda v: [str(x) for x in (v if isinstance(v, (list, tuple)) else [v])],
 }
 
 
