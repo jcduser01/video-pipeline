@@ -85,6 +85,54 @@ Whisper-JSON transcript via `--transcript` (e.g. the one the rough-cut phase wro
 to `work/`). The Remotion overlay needs the bundled project installed once:
 `cd remotion && npm install`.
 
+## Configuration
+
+Settings come from two places, low to high precedence:
+
+1. **Repo defaults**, layered per identity — `config/glossary/` (caption
+   vocabulary) and `config/caption-styles/` (caption look + chunking). Each has a
+   `global.*` file plus `identities/<identity>.*` that override it.
+2. **Per-project overrides** in the project's `project.yml`. A project wins over
+   the identity, which wins over global, which wins over the built-in defaults.
+
+The full, authoritative list of keys and types is `schema/project.schema.json`;
+`config/glossary/README.md` and `config/caption-styles/README.md` document the
+layered files. The commonly-tuned settings:
+
+```yaml
+# project.yml — lives in each project folder
+identity: <identity>     # selects the glossary + caption-style layer
+profile: reels-9x16      # output dimensions + safe-zone spec
+
+rough_cut:
+  trim_filler: true      # false = no speech-based cuts (preserves audio continuity)
+  silence_gap_s: 0.6     # gap (s) above which dead air is trimmed
+  keep_pad_lead_s: 0.06  # padding kept before each kept span
+  keep_pad_tail_s: 0.15  # padding kept after each kept span
+
+captions:
+  # Words-per-cue RANGE — the main caption control (not two modes, one range):
+  #   min_words: 1, max_words: 1  -> single-word, word-by-word captions
+  #   min_words: 2, max_words: 4  -> phrase-aware groups (default)
+  #   min_words: 1, max_words: 2  -> mostly singles, pairs when they read better
+  min_words: 2
+  max_words: 4
+  target_words: 0        # words-per-cue to aim for; 0 = auto (midpoint of range)
+  max_chars: 24          # hard character cap per cue
+  max_gap_s: 0.6         # pause (s) that forces a caption break
+  uppercase: true        # render text uppercase
+  position: lower-third  # caption box anchor: upper-third | center | lower-third
+  # font_family, font_size, fill_color, stroke_color, emphasis_color, …
+  #   — full style keys are in config/caption-styles/README.md
+```
+
+**Caption breaking** is phrase-aware and balanced within the range: it favours
+even cue widths, avoids one-word widows (when `min_words > 1`), and prefers to
+break *before* function words ("the", "and", "I") rather than stranding them. The
+range is the only control you normally touch — set `1`/`1` for word-by-word,
+`2`/`4` for phrases. Output is the editable caption file, so any cue can still be
+hand-adjusted.
+
 ## Test
 
 ```bash
