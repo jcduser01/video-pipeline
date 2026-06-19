@@ -139,7 +139,9 @@ def track_to_remotion_props(
 def write_remotion_props(props: dict, path) -> None:
     from pathlib import Path
 
-    Path(path).write_text(json.dumps(props, indent=2) + "\n", encoding="utf-8")
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(props, indent=2) + "\n", encoding="utf-8")
 
 
 def build_props_from_safezone(
