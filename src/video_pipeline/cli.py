@@ -32,11 +32,15 @@ Subcommands:
       (notch included) and captions over the speaker's face; write a QC report
       and a danger-zone preview (daily driver: face detection + FFmpeg burn-in).
 
+  handoff <decision.yml> -o <out.xml> --reframed <clip.mp4> [--captions cap.yml]
+      Assemble the editor project: the decision file's KEEP segments laid over
+      the reframed clip on a Base Cut track, plus the caption overlay on a
+      Captions track. Default format is Premiere-compatible FCP7 XML (Premiere Pro
+      does not import FCPXML); --format fcpxml targets Resolve / Final Cut. Also
+      writes a cut-time caption file to render the aligned overlay (captions-render).
+
   fcpxml <decision.yml> -o <out.fcpxml> --reframed <clip.mp4> [--captions cap.yml]
-      Assemble the editor handoff: the decision file's KEEP segments laid over
-      the reframed clip on a labeled Base Cut track, plus the caption overlay on
-      a Captions track. Opens in Premiere / Resolve / Final Cut. Also writes a
-      cut-time caption file to render the aligned overlay (captions-render).
+      Back-compat alias of `handoff --format fcpxml` (always emits FCPXML).
 """
 
 from __future__ import annotations
@@ -303,8 +307,11 @@ def _cmd_qc(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_fcpxml(args: argparse.Namespace) -> int:
+def _cmd_handoff(args: argparse.Namespace) -> int:
     from .fcpxml.runner import assemble_project
+
+    # The `fcpxml` alias forces FCPXML; `handoff` honors --format (premiere default).
+    fmt = getattr(args, "format", None) or "fcpxml"
 
     out_w, out_h = _PROFILE_DIMS.get(args.profile, (1080, 1920))
     result = assemble_project(
@@ -313,14 +320,16 @@ def _cmd_fcpxml(args: argparse.Namespace) -> int:
         reframed_clip=args.reframed,
         caption_path=args.captions,
         overlay_path=args.overlay,
+        fmt=fmt,
         width=out_w,
         height=out_h,
         fps=args.fps,
         event_name=args.event,
         project_name=args.project_name,
     )
+    label = "Premiere FCP7 XML" if result["format"] == "premiere" else "FCPXML"
     print(
-        f"wrote {result['fcpxml']}  base-cut clips={result['clips']}  "
+        f"wrote {result['project']}  [{label}]  base-cut clips={result['clips']}  "
         f"duration={result['kept_duration']:.2f}s"
     )
     if result["cut_captions"]:
@@ -330,6 +339,26 @@ def _cmd_fcpxml(args: argparse.Namespace) -> int:
             f"{result['cut_captions']} -o {result['overlay']} --safezone <spec.json>"
         )
     return 0
+
+
+def _add_handoff_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("decision", help="decision file path (.yml) — the base cut")
+    parser.add_argument("-o", "--output", required=True, help="project output path")
+    parser.add_argument("--reframed", required=True,
+                        help="the reframed vertical clip the base cut references "
+                             "(work/<clip>-9x16.mp4); reframe is baked, not a transform")
+    parser.add_argument("--captions", default=None,
+                        help="caption file (.yml); remapped to cut-time + referenced as "
+                             "the Captions overlay track")
+    parser.add_argument("--overlay", default=None,
+                        help="path the cut-time caption overlay (.mov) will be rendered to "
+                             "and referenced from (default: alongside the project)")
+    parser.add_argument("--profile", default="reels-9x16",
+                        help="output profile -> sequence dimensions (default reels-9x16)")
+    parser.add_argument("--fps", type=int, default=30, help="sequence frame rate (default 30)")
+    parser.add_argument("--event", default="JasonOS", help="FCPXML event name (fcpxml only)")
+    parser.add_argument("--project-name", default=None,
+                        help="project/sequence name (default: the decision file's source)")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -501,27 +530,23 @@ def build_parser() -> argparse.ArgumentParser:
                    help="compute + write the report but do not run FFmpeg renders")
     q.set_defaults(func=_cmd_qc)
 
-    fx = sub.add_parser(
-        "fcpxml", help="assemble the editor handoff (FCPXML: base cut + captions)"
+    # handoff — the editor project. Default format is Premiere-compatible FCP7
+    # XML (Premiere does not import FCPXML); --format fcpxml targets Resolve / FCP.
+    h = sub.add_parser(
+        "handoff",
+        help="assemble the editor project (base cut + captions); "
+             "Premiere FCP7 XML by default, --format fcpxml for Resolve/Final Cut",
     )
-    fx.add_argument("decision", help="decision file path (.yml) — the base cut")
-    fx.add_argument("-o", "--output", required=True, help="FCPXML output path (.fcpxml)")
-    fx.add_argument("--reframed", required=True,
-                    help="the reframed vertical clip the base cut references "
-                         "(work/<clip>-9x16.mp4); reframe is baked, not a transform")
-    fx.add_argument("--captions", default=None,
-                    help="caption file (.yml); remapped to cut-time + referenced as "
-                         "the Captions overlay track")
-    fx.add_argument("--overlay", default=None,
-                    help="path the cut-time caption overlay (.mov) will be rendered to "
-                         "and referenced from (default: alongside the FCPXML)")
-    fx.add_argument("--profile", default="reels-9x16",
-                    help="output profile -> sequence dimensions (default reels-9x16)")
-    fx.add_argument("--fps", type=int, default=30, help="sequence frame rate (default 30)")
-    fx.add_argument("--event", default="JasonOS", help="FCPXML event name")
-    fx.add_argument("--project-name", default=None,
-                    help="FCPXML project name (default: the decision file's source)")
-    fx.set_defaults(func=_cmd_fcpxml)
+    _add_handoff_args(h)
+    h.add_argument("--format", default="premiere", choices=["premiere", "fcpxml"],
+                   help="premiere = FCP7/XMEML XML (default, opens in Premiere Pro); "
+                        "fcpxml = FCPXML 1.10 (Resolve / Final Cut)")
+    h.set_defaults(func=_cmd_handoff)
+
+    # fcpxml — back-compat alias; always emits FCPXML (honors its name).
+    fx = sub.add_parser("fcpxml", help="assemble the FCPXML handoff (Resolve / Final Cut)")
+    _add_handoff_args(fx)
+    fx.set_defaults(func=_cmd_handoff)
 
     return p
 

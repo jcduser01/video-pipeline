@@ -27,6 +27,12 @@ from typing import Optional
 from ..captions.cue import CaptionTrack
 from ..roughcut.decision import DecisionList
 from .document import assemble_fcpxml
+from .xmeml import assemble_xmeml
+
+# Handoff formats. ``premiere`` (FCP7 XML / XMEML) is the default — Premiere Pro
+# does not import FCPXML. ``fcpxml`` targets Resolve / Final Cut.
+FORMATS = ("premiere", "fcpxml")
+_SUFFIX = {"premiere": ".xml", "fcpxml": ".fcpxml"}
 
 
 def assemble_project(
@@ -37,20 +43,24 @@ def assemble_project(
     caption_path: Optional[str] = None,
     overlay_path: Optional[str] = None,
     cut_caption_path: Optional[str] = None,
+    fmt: str = "premiere",
     width: int = 1080,
     height: int = 1920,
     fps: int = 30,
     event_name: str = "JasonOS",
     project_name: Optional[str] = None,
 ) -> dict:
-    """Assemble the FCPXML (and the cut-time caption file) from artifacts on disk.
+    """Assemble the editor project (and the cut-time caption file) from disk.
 
-    Reads the decision file (and the caption file, if given), assembles the
-    FCPXML referencing ``reframed_clip`` and ``overlay_path``, and writes both the
-    ``.fcpxml`` and — when captions are supplied — the **cut-time** caption file
-    the overlay should be rendered from. Returns a dict of the paths written plus
-    a little timeline summary.
+    Reads the decision file (and the caption file, if given) and writes the
+    handoff in ``fmt`` — ``premiere`` (FCP7 XML / XMEML, the default, opens
+    natively in Premiere Pro) or ``fcpxml`` (Resolve / Final Cut). When captions
+    are supplied it also writes the **cut-time** caption file the overlay should
+    be rendered from. Returns a dict of the paths written plus a timeline summary.
     """
+    if fmt not in FORMATS:
+        raise ValueError(f"unknown format {fmt!r} (use one of {FORMATS})")
+
     decision = DecisionList.read(decision_path)
 
     track: Optional[CaptionTrack] = None
@@ -58,28 +68,34 @@ def assemble_project(
         track = CaptionTrack.read(caption_path).reindex()
 
     out = Path(output_path)
-    # Default the overlay path the FCPXML references (rendered from the cut track).
+    # Default the overlay path the project references (rendered from the cut track).
     resolved_overlay = overlay_path
     if track is not None and resolved_overlay is None:
         resolved_overlay = str(out.with_suffix("").with_suffix(".captions.mov"))
 
-    xml, cut_track = assemble_fcpxml(
-        decision,
-        track,
+    assemble = assemble_xmeml if fmt == "premiere" else assemble_fcpxml
+    kwargs = dict(
         reframed_src=reframed_clip,
         overlay_src=resolved_overlay,
         width=width,
         height=height,
         fps=fps,
-        event_name=event_name,
-        project_name=project_name,
     )
+    # The two serializers name the project arg differently (sequence vs project).
+    if fmt == "premiere":
+        kwargs["sequence_name"] = project_name
+    else:
+        kwargs["project_name"] = project_name
+        kwargs["event_name"] = event_name
+
+    xml, cut_track = assemble(decision, track, **kwargs)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(xml, encoding="utf-8")
 
     result = {
-        "fcpxml": str(out),
+        "format": fmt,
+        "project": str(out),
         "clips": len([s for s in decision.segments if s.keep]),
         "kept_duration": decision.kept_duration(),
         "overlay": resolved_overlay if cut_track and cut_track.kept() else None,

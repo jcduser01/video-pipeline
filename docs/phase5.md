@@ -1,11 +1,35 @@
-# Phase 5 — FCPXML handoff
+# Phase 5 — Editor handoff (Premiere XML / FCPXML)
 
 The pipeline's last automated step. It assembles the accepted layers — the
 **base cut** (the rough-cut decision file's KEEP segments) over the **reframed
-vertical clip**, plus the **styled caption overlay** — into a single FCPXML that
-opens in **Adobe Premiere Pro** (primary), **DaVinci Resolve** (free; FCPXML
-import confirmed), or **Final Cut Pro**. The editor's last mile — pacing,
-transitions, music placement, final mix — stays with the CEO (shaping brief §5).
+vertical clip**, plus the **styled caption overlay** — into a single editor
+project. The editor's last mile — pacing, transitions, music placement, final
+mix — stays with the editor (shaping brief §5).
+
+## Two output formats — Premiere by default
+
+**Adobe Premiere Pro does not import FCPXML.** It imports the older **Final Cut
+Pro 7 XML** interchange (XMEML), which DaVinci Resolve and Final Cut also read.
+So the handoff emits two formats:
+
+| `--format` | Document | Opens natively in |
+|---|---|---|
+| `premiere` (default) | FCP7 XML / XMEML (`<!DOCTYPE xmeml>`) | **Premiere Pro**, Resolve, Final Cut |
+| `fcpxml` | FCPXML 1.10 (`<fcpxml version="1.10">`) | Resolve, Final Cut |
+
+Default to `premiere` so a reel opens straight in Premiere with no FCPXML→XML
+round-trip through Resolve. Both formats are built from the **same** base cut and
+the same source→cut caption remap (`timeline.py` is format-agnostic); they differ
+only in serialization:
+
+- **XMEML** — times are integer **frames**; the base cut's audio is explicit
+  (a video clipitem on V1 plus stereo audio clipitems on A1/A2, tied with
+  `<link>` blocks); the caption overlay rides **V2** with
+  `<alphatype>straight</alphatype>` so Premiere keys its transparency;
+  `pathurl` is `file://localhost/…`.
+- **FCPXML 1.10** — times are rational seconds (`frameDuration = 1/fps`); the
+  base cut is `asset-clip`s on the `<spine>`; the caption overlay is one
+  connected clip (`lane="1"`, role `Captions`).
 
 As with the rest of the pipeline, the assembly is **pure and unit-tested**; the
 only machine-specific requirement is that the referenced media (the reframed
@@ -44,36 +68,30 @@ render *that* file to the overlay so the captions line up with the compressed cu
 When `trim_filler: false` (a single whole-clip KEEP), the remap is the identity
 and captions pass through unchanged.
 
-## The FCPXML
-
-- **FCPXML 1.10**, a single project `format` at the profile dimensions, rational
-  frame-exact times (`frameDuration = 1/fps`; every time an integer multiple).
-- **Base Cut** — each KEEP segment is its own `asset-clip` on the `<spine>`,
-  referencing the reframed asset with a cumulative timeline `offset` and a source
-  in-point (`start`). Separate clips mean the editor can drop a transition
-  between cuts. Audio rides here (`audioRole="dialogue"`).
-- **Captions** — the overlay as one connected `asset-clip` (`lane="1"`, custom
-  role `Captions`) anchored to the first base clip, spanning the whole cut. The
-  overlay has video + alpha, no audio.
-
 ## Usage
 
 ```bash
-# Assemble the handoff (writes the .fcpxml + the cut-time caption file)
-video-pipeline fcpxml review/decision.yml -o out/reel.fcpxml \
+# Premiere-compatible handoff (default; writes out/reel.xml + the cut-time caption file)
+video-pipeline handoff review/decision.yml -o out/reel.xml \
     --reframed work/clip-9x16.mp4 \
     --captions review/captions.yml \
     --profile reels-9x16 --fps 30
 
 # Render the aligned overlay from the cut-time caption file, then re-open the
-# FCPXML (it already references out/reel.captions.mov):
+# project (it already references out/reel.captions.mov):
 video-pipeline captions-render out/reel.captions.cut.yml \
     -o out/reel.captions.mov --safezone config/safezone/reels-9x16.safezone.json
+
+# FCPXML instead (Resolve / Final Cut) — either form:
+video-pipeline handoff review/decision.yml -o out/reel.fcpxml --format fcpxml --reframed work/clip-9x16.mp4
+video-pipeline fcpxml  review/decision.yml -o out/reel.fcpxml --reframed work/clip-9x16.mp4   # back-compat alias
 ```
 
-Without `--captions`, the FCPXML is base-cut only (still opens with the reframed,
-trimmed timeline ready to edit). `--overlay` overrides the overlay path the
-FCPXML references; `--project-name` / `--event` set the FCPXML labels.
+Without `--captions`, the project is base-cut only (still opens with the
+reframed, trimmed timeline ready to edit). `--overlay` overrides the overlay path
+the project references; `--project-name` sets the sequence/project name (`--event`
+sets the FCPXML event, fcpxml only). Name the Premiere output `.xml` and the
+FCPXML output `.fcpxml`.
 
 ## What's pure vs. machine-specific
 
@@ -81,10 +99,12 @@ FCPXML references; `--project-name` / `--event` set the FCPXML labels.
 |---|---|---|
 | Base-cut timeline + cumulative offsets | `fcpxml/timeline.py` | ✅ |
 | Source→cut time remap (drop / clip / karaoke) | `fcpxml/timeline.py` | ✅ |
+| FCP7 XML / XMEML document (frames, V1/V2, A1/A2 links, alpha) | `fcpxml/xmeml.py` | ✅ |
 | FCPXML 1.10 document (rationals, assets, spine, lanes) | `fcpxml/document.py` | ✅ |
-| Path/file-URI resolution + file writes | `fcpxml/runner.py` | reads/writes only |
+| Format dispatch + path resolution + file writes | `fcpxml/runner.py` | reads/writes only |
 | Opening the project + relinking media; overlay render | Premiere / Resolve / FCP | local acceptance |
 
 The remaining unverified surface is the same as the other phases' daily-driver
 seams: the actual import into Premiere/Resolve and the overlay render. The
-document structure, timeline math, and remap are fully covered by the suite.
+document structure (both formats), timeline math, and remap are fully covered by
+the suite.
