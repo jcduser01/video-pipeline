@@ -4,10 +4,21 @@ Safe-zone specs, one per output profile, derived from reference template PNGs.
 
 ## What lives here
 
-- `instagram-safe-zone-reels-9x16.png` — the reference template (source:
-  [adkit.so](https://adkit.so/tools/safe-zones/instagram)). The **danger** region
-  is an opaque overlay; the **safe** region is transparent.
-- `reels-9x16.safezone.json` — the generated, machine-readable spec.
+Reference template PNGs, one per output profile, all sourced from
+[adkit.so](https://adkit.so/tools/safe-zones/instagram). In each, the **danger**
+region is an opaque overlay and the **safe** region is transparent.
+
+- `instagram-safe-zone-reels-9x16.png` (1080×1920)
+- `instagram-safe-zone-story-9x16.png` (1080×1920)
+- `instagram-safe-zone-feed-portrait-4x5.png` (1080×1350)
+- `instagram-safe-zone-feed-square-1x1.png` (1080×1080)
+- `instagram-safe-zone-feed-landscape-16x9.png` (1080×608)
+
+Generated machine-readable specs sit alongside as `<profile>.safezone.json`:
+
+- `reels-9x16.safezone.json` — generated from the reels template.
+
+Generate the spec for any other profile with the command below as it's needed.
 
 ## Why a polygon, not a box
 
