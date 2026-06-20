@@ -16,6 +16,10 @@ htmlcov/
 # OS
 .DS_Store
 
+# Build lock artifacts
+uv.lock
+package-lock.json
+
 # Project data never lives in the repo (projects are data under ~/Video/Projects/)
 /projects/
 *.mp4
