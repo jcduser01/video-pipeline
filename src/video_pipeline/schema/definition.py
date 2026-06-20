@@ -148,16 +148,25 @@ def build_schema() -> Schema:
     # ---- Tasks (graph nodes) --------------------------------------------------
     tasks: list[Task] = []
 
-    # project-init: origin of the `base` channel.
+    # project-init: origin of the `base` channel. Its sole positional is the
+    # project folder name (CLI `project-init "<name>" ...`); `base` is produced for
+    # the dependency graph but is NOT a project-init argument (paths are derived
+    # internally from root + name), so it carries no io binding here.
     tasks.append(Task(
         id="project.init", step="project", label="Initialize project",
         subcommand="project-init", optional=False,
         consumes=[], produces=["base"],
-        io=[IOBinding(artifact="base", role="output", via="positional", order=0)],
+        io=[],
         hint="Scaffold a new project folder.",
         help="Creates the project layout and project.yml. The folder name encodes "
              "date/token/hook; identity and profile seed the project defaults.",
         params=[
+            Param("name", "string", arity="positional", order=0, required=True,
+                  hint="Project folder name.",
+                  help="Name of the project folder created under the projects root. "
+                       "Convention: \"YYYY-MM-DD Token Project - Hook\".",
+                  example="YYYY-MM-DD Token Project - Hook",
+                  ui=UI(label="Project name", group="Setup")),
             _identity_param(required=True,
                   hint="Brand/identity id for styling defaults.",
                   help="Selects the caption style + glossary set for this creator "
