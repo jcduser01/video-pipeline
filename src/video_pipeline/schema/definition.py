@@ -533,18 +533,21 @@ def build_schema() -> Schema:
     ]
 
     # ---- Export targets -------------------------------------------------------
-    # Grounded in the real CLI: `handoff` writes Premiere FCP7 XML by default and
-    # FCPXML with --format fcpxml; `fcpxml` is the back-compat alias. CapCut has
-    # no exporter yet — it is intentionally omitted (declaring a target whose argv
-    # can't run would break tenet 2); it appears the moment a Python exporter lands.
+    # The unified `export <target>` CLI: premiere (FCP7 XML / XMEML, opens in
+    # Premiere natively) and fcpxml (FCPXML 1.10 for Resolve / Final Cut) both
+    # assemble tracks referencing the media (the composite rides on top as a
+    # disabled guide clip); capcut writes an arranged-media folder because CapCut
+    # imports no project — the layers + composite are just gathered for hand
+    # assembly (shaping brief §3.2; SADD §3.5 "no manifest, arranged media only").
     export_targets = [
         ExportTarget(
             id="premiere", label="Adobe Premiere Pro",
-            subcommand="handoff --format premiere", bundle="exports/premiere",
+            subcommand="export premiere", bundle="exports/premiere",
             hint="FCP7 XML (XMEML) — opens in Premiere Pro.",
             help="Assembles the base cut + caption overlay as tracks referencing the "
-                 "media files (never reconstructed), as FCP7/XMEML XML. Premiere does "
-                 "not import FCPXML, so this is its dedicated target.",
+                 "media files (never reconstructed), as FCP7/XMEML XML, with the "
+                 "composite as a disabled top-track guide clip. Premiere does not "
+                 "import FCPXML, so this is its dedicated target.",
             params=[
                 Param("fps", "number", flag="--fps", default=30, min=24, max=60, step=1,
                       hint="Sequence frame rate.",
@@ -553,10 +556,11 @@ def build_schema() -> Schema:
         ),
         ExportTarget(
             id="fcpx", label="Final Cut Pro / DaVinci Resolve",
-            subcommand="handoff --format fcpxml", bundle="exports/fcpx",
+            subcommand="export fcpxml", bundle="exports/fcpx",
             hint="FCPXML 1.10 — Final Cut / Resolve.",
             help="Same timeline model serialized as FCPXML for Final Cut Pro and "
-                 "DaVinci Resolve.",
+                 "DaVinci Resolve, with the composite as a disabled top-track guide "
+                 "clip.",
             params=[
                 Param("fps", "number", flag="--fps", default=30, min=24, max=60, step=1,
                       hint="Sequence frame rate.",
@@ -565,6 +569,15 @@ def build_schema() -> Schema:
                       hint="FCPXML event name.",
                       ui=UI(label="Event name", group="Sequence")),
             ],
+        ),
+        ExportTarget(
+            id="capcut", label="CapCut",
+            subcommand="export capcut", bundle="exports/capcut",
+            hint="Arranged-media folder (no project file).",
+            help="CapCut imports no timeline/EDL, so this gathers the rendered layers "
+                 "(base cut + caption overlay) and the composite into a folder with a "
+                 "README listing the z-order, for hand assembly in CapCut.",
+            params=[],
         ),
     ]
 

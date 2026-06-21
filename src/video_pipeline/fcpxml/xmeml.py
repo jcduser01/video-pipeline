@@ -110,12 +110,18 @@ def build_document(
     *,
     reframed: Asset,
     overlay: Optional[Asset],
+    composite: Optional[Asset] = None,
     width: int,
     height: int,
     fps: int,
     sequence_name: str,
 ) -> str:
-    """Assemble the XMEML string from base clips + assets (pure)."""
+    """Assemble the XMEML string from base clips + assets (pure).
+
+    ``composite`` (the flattened all-layers render) is optional; when present it
+    rides the top video track as a **disabled guide clip** (``<enabled>FALSE``,
+    SADD §7) — a reference the editor toggles on, never part of the active edit.
+    """
     if not base_clips:
         raise ValueError("no base-cut clips to assemble")
 
@@ -205,6 +211,29 @@ def build_document(
         _text(v2, "enabled", "TRUE")
         _text(v2, "locked", "FALSE")
 
+    # V3 — composite guide clip (disabled): the flattened render on the top track,
+    # off by default. A reference to compare against; never part of the active edit.
+    if composite is not None:
+        v3 = ET.SubElement(video, "track")
+        ci = ET.SubElement(v3, "clipitem", {"id": "clipitem-composite"})
+        _text(ci, "name", "Composite (guide)")
+        _text(ci, "enabled", "FALSE")
+        _text(ci, "duration", total_f)
+        _rate(ci, fps)
+        _text(ci, "start", 0)
+        _text(ci, "end", total_f)
+        _text(ci, "in", 0)
+        _text(ci, "out", total_f)
+        _text(ci, "alphatype", "none")
+        _file_element(
+            ci, file_id="file-3", asset=composite, duration_frames=total_f,
+            fps=fps, width=width, height=height, define=True,
+        )
+        st = ET.SubElement(ci, "sourcetrack")
+        _text(st, "mediatype", "video")
+        _text(v3, "enabled", "TRUE")
+        _text(v3, "locked", "FALSE")
+
     # ── audio (base cut's stereo) ──
     audio = ET.SubElement(media, "audio")
     aformat = ET.SubElement(audio, "format")
@@ -251,6 +280,7 @@ def assemble_xmeml(
     *,
     reframed_src: str,
     overlay_src: Optional[str] = None,
+    composite_src: Optional[str] = None,
     width: int = 1080,
     height: int = 1920,
     fps: int = 30,
@@ -286,10 +316,18 @@ def assemble_xmeml(
                 duration=decision.source_duration(), has_audio=False,
             )
 
+    composite: Optional[Asset] = None
+    if composite_src is not None:
+        composite = Asset(
+            id="file-3", name="composite", src=composite_src,
+            duration=decision.source_duration(), has_audio=False,
+        )
+
     xml = build_document(
         base_clips,
         reframed=reframed,
         overlay=overlay,
+        composite=composite,
         width=width,
         height=height,
         fps=fps,

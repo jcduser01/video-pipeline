@@ -42,6 +42,7 @@ def assemble_project(
     reframed_clip: str,
     caption_path: Optional[str] = None,
     overlay_path: Optional[str] = None,
+    composite_path: Optional[str] = None,
     cut_caption_path: Optional[str] = None,
     fmt: str = "premiere",
     width: int = 1080,
@@ -77,6 +78,7 @@ def assemble_project(
     kwargs = dict(
         reframed_src=reframed_clip,
         overlay_src=resolved_overlay,
+        composite_src=composite_path,
         width=width,
         height=height,
         fps=fps,

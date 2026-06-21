@@ -97,6 +97,7 @@ def build_document(
     *,
     reframed: Asset,
     overlay: Optional[Asset],
+    composite: Optional[Asset] = None,
     width: int,
     height: int,
     fps: int,
@@ -106,8 +107,11 @@ def build_document(
     """Assemble the FCPXML string from pre-computed base clips + assets.
 
     ``overlay`` (the cut-time caption layer) is optional; when absent the document
-    is base-cut only. Returns a complete UTF-8 FCPXML document (declaration +
-    DOCTYPE + tree).
+    is base-cut only. ``composite`` (the flattened all-layers render) is optional;
+    when present it rides the top lane as a **disabled guide clip** (SADD §7) — off
+    by default so it never overrides the editable stack; the editor toggles it on
+    to compare against the assembled reference. Returns a complete UTF-8 FCPXML
+    document (declaration + DOCTYPE + tree).
     """
     if not base_clips:
         raise ValueError("no base-cut clips to assemble")
@@ -157,6 +161,8 @@ def build_document(
     _asset_el(reframed)
     if overlay is not None:
         _asset_el(overlay)
+    if composite is not None:
+        _asset_el(composite)
 
     library = ET.SubElement(fcpxml, "library")
     event = ET.SubElement(library, "event", {"name": event_name})
@@ -212,6 +218,25 @@ def build_document(
             },
         )
 
+    # Composite guide clip: the flattened render on the top lane, disabled by
+    # default (SADD §7). A reference the editor can toggle on to compare; it never
+    # contributes to the active edit.
+    if composite is not None and first_el is not None:
+        ET.SubElement(
+            first_el,
+            "asset-clip",
+            {
+                "ref": composite.id,
+                "lane": "2" if overlay is not None else "1",
+                "offset": time_str(base_clips[0].source_in, fps),
+                "name": "Composite (guide)",
+                "start": "0s",
+                "duration": time_str(total, fps),
+                "enabled": "0",
+                "role": "Composite",
+            },
+        )
+
     body = ET.tostring(fcpxml, encoding="unicode")
     return f'<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n{body}\n'
 
@@ -224,6 +249,7 @@ def assemble_fcpxml(
     *,
     reframed_src: str,
     overlay_src: Optional[str] = None,
+    composite_src: Optional[str] = None,
     width: int = 1080,
     height: int = 1920,
     fps: int = 30,
@@ -264,10 +290,18 @@ def assemble_fcpxml(
                 has_audio=False,
             )
 
+    composite: Optional[Asset] = None
+    if composite_src is not None:
+        composite = Asset(
+            id="r4", name="composite", src=composite_src,
+            duration=total, has_audio=False,
+        )
+
     xml = build_document(
         base_clips,
         reframed=reframed,
         overlay=overlay,
+        composite=composite,
         width=width,
         height=height,
         fps=fps,

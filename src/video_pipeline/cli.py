@@ -340,6 +340,7 @@ def _cmd_handoff(args: argparse.Namespace) -> int:
         reframed_clip=args.reframed,
         caption_path=args.captions,
         overlay_path=args.overlay,
+        composite_path=args.composite,
         fmt=fmt,
         width=out_w,
         height=out_h,
@@ -373,12 +374,35 @@ def _add_handoff_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--overlay", default=None,
                         help="path the cut-time caption overlay (.mov) will be rendered to "
                              "and referenced from (default: alongside the project)")
+    parser.add_argument("--composite", default=None,
+                        help="composite render (review/composite.mp4) to include as a "
+                             "disabled top-track guide clip (omit to skip the guide)")
     parser.add_argument("--profile", default="reels-9x16",
                         help="output profile -> sequence dimensions (default reels-9x16)")
     parser.add_argument("--fps", type=int, default=30, help="sequence frame rate (default 30)")
     parser.add_argument("--event", default="JasonOS", help="FCPXML event name (fcpxml only)")
     parser.add_argument("--project-name", default=None,
                         help="project/sequence name (default: the decision file's source)")
+
+
+def _cmd_export_capcut(args: argparse.Namespace) -> int:
+    from .capcut import export_capcut
+
+    result = export_capcut(
+        args.output,
+        base=args.base,
+        captions=args.captions,
+        composite=args.composite,
+        dry_run=args.dry_run,
+    )
+    if args.dry_run:
+        print(f"capcut bundle (dry run) -> {result['bundle']}  layers={result['layers']}")
+        for m in result["media"]:
+            print(f"  would copy -> {m}")
+    else:
+        print(f"wrote capcut bundle -> {result['bundle']}  layers={result['layers']}")
+        print(f"  README -> {result['readme']}")
+    return 0
 
 
 def _cmd_schema(args: argparse.Namespace) -> int:
@@ -629,6 +653,37 @@ def build_parser() -> argparse.ArgumentParser:
     fx = sub.add_parser("fcpxml", help="assemble the FCPXML handoff (Resolve / Final Cut)")
     _add_handoff_args(fx)
     fx.set_defaults(func=_cmd_handoff)
+
+    # export <target> — the unified packaging command the GUI drives (SADD §3.5).
+    # premiere/fcpxml reuse the handoff assembler; capcut writes an arranged-media
+    # folder. `handoff`/`fcpxml` above stay as back-compat aliases.
+    ex = sub.add_parser("export", help="package the project for an editor "
+                                       "(premiere | fcpxml | capcut)")
+    ex_sub = ex.add_subparsers(dest="target", required=True)
+
+    exp = ex_sub.add_parser("premiere",
+                            help="FCP7 XML (XMEML) — opens in Premiere Pro")
+    _add_handoff_args(exp)
+    exp.set_defaults(func=_cmd_handoff, format="premiere")
+
+    exf = ex_sub.add_parser("fcpxml",
+                            help="FCPXML 1.10 — DaVinci Resolve / Final Cut Pro")
+    _add_handoff_args(exf)
+    exf.set_defaults(func=_cmd_handoff, format="fcpxml")
+
+    exc = ex_sub.add_parser("capcut",
+                            help="arranged-media folder (CapCut imports no project)")
+    exc.add_argument("-o", "--output", required=True,
+                     help="bundle directory (exports/capcut)")
+    exc.add_argument("--base", required=True,
+                     help="the rendered base cut (work/base.mp4)")
+    exc.add_argument("--captions", default=None,
+                     help="the caption overlay layer (.mov)")
+    exc.add_argument("--composite", default=None,
+                     help="the composite render (review/composite.mp4)")
+    exc.add_argument("--dry-run", action="store_true",
+                     help="show the copy plan without writing")
+    exc.set_defaults(func=_cmd_export_capcut)
 
     return p
 
