@@ -23,6 +23,8 @@ from pathlib import Path
 
 from .model import (
     Artifact,
+    Compose,
+    ComposePart,
     Engine,
     ExportTarget,
     IOBinding,
@@ -34,6 +36,10 @@ from .model import (
     UI,
     SCHEMA_VERSION,
 )
+
+# Valid project-name tokens (the content-type word in the folder convention
+# "YYYY-MM-DD <Token> Project - <Hook>"). Curated set surfaced as a dropdown.
+_PROJECT_TOKENS = ["Reel", "Story", "Post"]
 
 # Profiles the CLI understands (kept in sync with cli._PROFILE_DIMS).
 _PROFILES = [
@@ -163,9 +169,21 @@ def build_schema() -> Schema:
         params=[
             Param("name", "string", arity="positional", order=0, required=True,
                   hint="Project folder name.",
-                  help="Name of the project folder created under the projects root. "
-                       "Convention: \"YYYY-MM-DD Token Project - Hook\".",
-                  example="YYYY-MM-DD Token Project - Hook",
+                  help="Assembled to the convention \"YYYY-MM-DD <Token> Project - "
+                       "<Hook>\" from the fields below, so it always matches.",
+                  compose=Compose(
+                      template="{date} {token} Project - {hook}",
+                      parts=[
+                          ComposePart("date", "Date", control="date", default="today"),
+                          ComposePart("token", "Token", control="dropdown",
+                                      options=_PROJECT_TOKENS, default="Reel",
+                                      hint="Content-type token; part of the folder "
+                                           "name and the render filename."),
+                          ComposePart("hook", "Hook", control="field",
+                                      placeholder="short description",
+                                      hint="A short description — becomes the render-file slug."),
+                      ],
+                  ),
                   ui=UI(label="Project name", group="Setup")),
             Param("source", "path", flag="--source",
                   hint="Source video to ingest.",
