@@ -155,7 +155,7 @@ def build_schema() -> Schema:
     tasks.append(Task(
         id="project.init", step="project", label="Initialize project",
         subcommand="project-init", optional=False,
-        consumes=[], produces=["base"],
+        consumes=[], produces=["base", "project"],
         io=[],
         hint="Scaffold a new project folder.",
         help="Creates the project layout and project.yml. The folder name encodes "
@@ -201,7 +201,10 @@ def build_schema() -> Schema:
     tasks.append(Task(
         id="safezone.gen", step="safezone", label="Generate safe-zone spec",
         subcommand="safezone-gen", optional=False,
-        consumes=[], produces=["safezone.def"],
+        # Depends on `project` (no argv binding) so it runs AFTER project-init has
+        # created the project dir it writes into — project-init also errors if the
+        # dir already exists, so the two must not run in parallel.
+        consumes=["project"], produces=["safezone.def"],
         io=[
             IOBinding(artifact="safezone.def", role="output", via="flag", flag="-o"),
         ],
@@ -432,6 +435,11 @@ def build_schema() -> Schema:
 
     # ---- Artifacts (channels + descriptors) -----------------------------------
     artifacts = [
+        Artifact("project", kind="descriptor", path="project.yml", previewable=False,
+                 hint="The initialized project (project.yml + folder layout).",
+                 help="Produced by project-init; consumed as an ordering dependency by "
+                      "steps that write into the project but don't read a media channel "
+                      "(e.g. safe-zone generation)."),
         Artifact("base", kind="layer", path="work/base.mp4", previewable=True, z_order=0,
                  hint="The working video (reframed/cut).",
                  help="The base video channel. project.init seeds it; reframe and "
