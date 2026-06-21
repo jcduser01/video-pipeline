@@ -97,6 +97,48 @@ class PathSpec:
 
 
 @dataclass(frozen=True)
+class ComposePart:
+    """One labelled sub-field of a composed value (SADD §3.4).
+
+    ``control``: field | dropdown | date. ``default`` "today" on a date control
+    pre-fills the current date in the GUI."""
+
+    key: str
+    label: str
+    control: str = "field"
+    options: list[str] | None = None
+    default: str | None = None
+    hint: str = ""
+    placeholder: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"key": self.key, "label": self.label, "control": self.control}
+        if self.options is not None:
+            d["options"] = list(self.options)
+        if self.default is not None:
+            d["default"] = self.default
+        if self.hint:
+            d["hint"] = self.hint
+        if self.placeholder is not None:
+            d["placeholder"] = self.placeholder
+        return d
+
+
+@dataclass(frozen=True)
+class Compose:
+    """Build one param value from labelled sub-fields, so the GUI can ask for the
+    parts of a conventional string (e.g. a project folder name) instead of a free
+    string the user has to format correctly. ``template`` interpolates ``{key}``
+    placeholders; the assembled string is the param's value (and its argv token)."""
+
+    template: str
+    parts: list[ComposePart]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"template": self.template, "parts": [p.to_dict() for p in self.parts]}
+
+
+@dataclass(frozen=True)
 class Param:
     """A single controllable input to a task.
 
@@ -120,6 +162,7 @@ class Param:
     hint: str = ""                  # one-line tooltip
     help: str = ""                  # docked-panel long form
     example: str | None = None      # example invocation fragment
+    compose: "Compose | None" = None  # build this value from labelled sub-fields
     path: PathSpec | None = None    # type="path" only: picker/drag-drop metadata
 
     def resolved_control(self) -> str:
@@ -157,6 +200,8 @@ class Param:
             d["help"] = self.help
         if self.example:
             d["example"] = self.example
+        if self.compose is not None:
+            d["compose"] = self.compose.to_dict()
         if self.path is not None:
             d["path"] = self.path.to_dict()
         return d
