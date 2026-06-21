@@ -14,6 +14,7 @@ in to skip the MLX step (e.g. re-proposing from a cached ``work/`` transcript).
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -113,6 +114,16 @@ def render_from_decision(  # pragma: no cover - needs ffmpeg + footage
     decision = DecisionList.read(decision_path)
     cmd = ffmpeg_roughcut_command(input_path, output_path, decision)
     if not dry_run:
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(cmd, check=True)
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        if Path(input_path).resolve() == out.resolve():
+            # `base` is rewritten in place; FFmpeg can't read+write the same file,
+            # so render to a temp sibling and atomically replace.
+            tmp = out.with_name(f".{out.stem}.tmp{out.suffix}")
+            subprocess.run(
+                ffmpeg_roughcut_command(input_path, str(tmp), decision), check=True
+            )
+            os.replace(tmp, out)
+        else:
+            subprocess.run(cmd, check=True)
     return cmd

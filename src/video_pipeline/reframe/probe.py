@@ -12,6 +12,7 @@ there instead.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -54,8 +55,16 @@ def reframe(
     )
     cmd = ffmpeg_crop_command(input_path, output_path, plan)
     if not dry_run:
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(cmd, check=True)
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        if Path(input_path).resolve() == out.resolve():
+            # The `base` channel is rewritten in place, but FFmpeg can't edit a
+            # file it's reading — render to a temp sibling, then atomically replace.
+            tmp = out.with_name(f".{out.stem}.tmp{out.suffix}")
+            subprocess.run(ffmpeg_crop_command(input_path, str(tmp), plan), check=True)
+            os.replace(tmp, out)
+        else:
+            subprocess.run(cmd, check=True)
     return cmd
 
 

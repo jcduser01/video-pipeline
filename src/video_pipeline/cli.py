@@ -87,6 +87,9 @@ def _cmd_project_init(args: argparse.Namespace) -> int:
         profile=args.profile,
         trim_filler=not args.no_trim_filler,
         source_video=args.source,
+        # Idempotent: re-running refreshes the project rather than erroring. The
+        # GUI confirms an overwrite before re-running; terminal users re-run knowingly.
+        exist_ok=True,
     )
     print(f"created project: {paths.root}")
     return 0
