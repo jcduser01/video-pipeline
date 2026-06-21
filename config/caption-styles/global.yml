@@ -12,6 +12,8 @@ stroke_width: 8
 emphasis_color: "#FFE14D"
 uppercase: true
 position: lower-third
+# horizontal placement: clear-notch (widest notch-free span) | center (symmetric)
+h_offset: clear-notch
 
 # ── background plate (INI-088 Phase 2) ──
 # A whole-block rounded rectangle behind the caption text, padded to clear the

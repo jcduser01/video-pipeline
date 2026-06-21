@@ -25,6 +25,7 @@ const defaultProps: CaptionProps = {
     emphasis_color: "#9C97F4",
     uppercase: true,
     position: "lower-third",
+    h_offset: "clear-notch",
     bg_enabled: false,
     bg_color: "#000000",
     bg_radius: 0,

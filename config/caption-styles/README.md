@@ -31,6 +31,7 @@ layers to the built-in `CaptionStyle` defaults.
 | `emphasis_color` | Fill for emphasis words (glossary terms / ALL-CAPS). |
 | `uppercase` | Force-uppercase the rendered text (timing/text data unchanged). |
 | `position` | Vertical anchor inside the safe zone: `lower-third`, `center`, `upper-third`. |
+| `h_offset` | Horizontal placement: `clear-notch` (widest notch-free span; may bias left at lower-third) or `center` (symmetric about frame-center). Per-run `--h-offset`. |
 | `bg_enabled` | Draw a whole-block rounded rectangle behind the caption text (off by default). Per-run `--bg`. |
 | `bg_color` | Background-plate fill (hex). Per-run `--bg-color`. |
 | `bg_radius` | Background-plate corner radius in px (`0` = square). Per-run `--bg-radius`. |

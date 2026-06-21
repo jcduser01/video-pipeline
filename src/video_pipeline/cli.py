@@ -101,7 +101,7 @@ def _resolve_project_paths(args: argparse.Namespace, keys, *, output_name: str) 
 # separate switch handled below.
 _CAPTION_STYLE_FLAG_DESTS = (
     "font_family", "font_size", "fill_color", "stroke_color", "stroke_width",
-    "bg_color", "bg_radius",
+    "bg_color", "bg_radius", "h_offset",
 )
 
 
@@ -131,6 +131,10 @@ def _add_caption_style_flags(parser: argparse.ArgumentParser) -> None:
                         help="background plate color (hex; with --bg)")
     parser.add_argument("--bg-radius", type=int, default=None, metavar="PX",
                         help="background plate corner radius in px (with --bg; 0 = square)")
+    # horizontal placement (INI-088 Phase 3)
+    parser.add_argument("--h-offset", default=None, choices=["clear-notch", "center"],
+                        help="horizontal placement: clear-notch (widest notch-free span) "
+                             "or center (frame-centered, symmetric)")
 
 
 def _style_overrides_from_args(args: argparse.Namespace) -> dict:

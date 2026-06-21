@@ -177,6 +177,14 @@ def _caption_style_params() -> list[Param]:
               help="Rounded-corner radius of the plate in px; 0 = square corners.",
               ui=UI(label="Plate corner radius (px)", control="slider", group="Style",
                     depends_on_key="bg_enabled", depends_on_equals=True)),
+        # Horizontal placement (INI-088 Phase 3).
+        Param("h_offset", "enum", flag="--h-offset",
+              options=["clear-notch", "center"], default="clear-notch",
+              hint="Horizontal placement of the caption block.",
+              help="clear-notch fills the widest notch-free span (wider, may bias "
+                   "left of frame-center at lower-third); center keeps the block "
+                   "symmetric about frame-center while still clearing the notch.",
+              ui=UI(label="Horizontal placement", control="dropdown", group="Style")),
     ]
 
 

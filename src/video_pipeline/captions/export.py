@@ -153,14 +153,20 @@ def build_props_from_safezone(
     fps: int = 30,
     position: Optional[str] = None,
     karaoke: Optional[bool] = None,
+    h_offset: Optional[str] = None,
 ) -> dict:
     """Convenience: derive the caption box from a safe-zone spec, then build props.
 
     Frame dimensions come from the spec's template image size (the profile's
-    native frame). ``position`` defaults to the style's anchor; ``karaoke``
-    defaults to ``style.karaoke``.
+    native frame). ``position`` defaults to the style's anchor; ``h_offset``
+    defaults to the style's horizontal placement; ``karaoke`` defaults to
+    ``style.karaoke``.
     """
-    box = caption_box(safezone_spec, position=position or style.position)
+    box = caption_box(
+        safezone_spec,
+        position=position or style.position,
+        h_offset=h_offset or style.h_offset,
+    )
     return track_to_remotion_props(
         track, style, box,
         width=safezone_spec.image_width,

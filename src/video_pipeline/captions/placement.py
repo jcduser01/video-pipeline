@@ -80,10 +80,14 @@ def _intersect_span(rows: List[int], spec: SafeZoneSpec) -> Tuple[int, int]:
     return (x0, x1)
 
 
+_H_OFFSETS = ("clear-notch", "center")
+
+
 def caption_box(
     spec: SafeZoneSpec,
     position: str = "lower-third",
     margin_frac: float = 0.04,
+    h_offset: str = "clear-notch",
 ) -> CaptionBox:
     """Derive a caption box at ``position``, guaranteed inside the safe region.
 
@@ -92,9 +96,20 @@ def caption_box(
     third of the safe-zone bounding box; the horizontal extent is the notch-free
     intersection across that band's rows, so a lower-third box clears the
     action-button notch automatically.
+
+    ``h_offset`` (INI-088 Phase 3) chooses how the box sits horizontally when the
+    notch shrinks the available span:
+
+    * ``"clear-notch"`` (default) — use the full notch-free span. At lower-third
+      this is wider but biased toward the non-notched (left) side.
+    * ``"center"`` — keep the box symmetric about the safe-area center, narrowing
+      both sides equally so the block stays frame-centered while still clearing
+      the notch. Identical to ``clear-notch`` for bands the notch doesn't touch.
     """
     if position not in _ANCHOR_BANDS:
         raise ValueError(f"position {position!r} not in {tuple(_ANCHOR_BANDS)}")
+    if h_offset not in _H_OFFSETS:
+        raise ValueError(f"h_offset {h_offset!r} not in {_H_OFFSETS}")
 
     bx0, by0, bx1, by1 = spec.bounding_box
     safe_h = by1 - by0
@@ -108,6 +123,14 @@ def caption_box(
     if sx1 <= sx0:
         # Degenerate (heavily notched band): fall back to the bbox width inset.
         sx0, sx1 = bx0, bx1
+
+    if h_offset == "center":
+        # Symmetric about the safe-area center: the largest centered span that
+        # still fits inside the notch-free [sx0, sx1].
+        cx = (bx0 + bx1) / 2.0
+        half = min(cx - sx0, sx1 - cx)
+        if half > 0:
+            sx0, sx1 = int(round(cx - half)), int(round(cx + half))
 
     margin = int(round((sx1 - sx0) * margin_frac))
     x = sx0 + margin

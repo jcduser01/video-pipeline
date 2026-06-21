@@ -26,6 +26,12 @@ import yaml
 # Vertical anchors for the caption box inside the safe zone.
 POSITIONS = ("upper-third", "center", "lower-third")
 
+# Horizontal placement (INI-088 Phase 3). "clear-notch" fills the widest notch-
+# free span (may sit left of frame-center at lower-third, maximizing width);
+# "center" keeps the block symmetric about frame-center, narrowing both sides to
+# clear the lower-right Reels notch. They differ only where the notch intrudes.
+H_OFFSETS = ("clear-notch", "center")
+
 # Curated font allowlist (INI-088). The authoritative set of font families the
 # style layer accepts — enforced in :meth:`CaptionStyle.__post_init__` and reused
 # verbatim as the GUI font dropdown's options, so the UX guardrail can never offer
@@ -86,6 +92,8 @@ class CaptionStyle:
     emphasis_color: str = "#FFE14D"
     uppercase: bool = True
     position: str = "lower-third"
+    # Horizontal placement (INI-088 Phase 3); see H_OFFSETS.
+    h_offset: str = "clear-notch"
 
     # ── background plate (INI-088 Phase 2) ──
     # A whole-block rounded rectangle behind the text block. Off by default; when
@@ -115,6 +123,10 @@ class CaptionStyle:
         if self.position not in POSITIONS:
             raise ValueError(
                 f"position {self.position!r} not in {POSITIONS}"
+            )
+        if self.h_offset not in H_OFFSETS:
+            raise ValueError(
+                f"h_offset {self.h_offset!r} not in {H_OFFSETS}"
             )
         if self.font_family.lower() not in _FONT_ALLOWLIST_LC:
             raise ValueError(
@@ -160,6 +172,7 @@ class CaptionStyle:
             "emphasis_color": self.emphasis_color,
             "uppercase": self.uppercase,
             "position": self.position,
+            "h_offset": self.h_offset,
             "bg_enabled": self.bg_enabled,
             "bg_color": self.bg_color,
             "bg_radius": self.bg_radius,
@@ -185,6 +198,7 @@ _COERCE = {
     "emphasis_color": str,
     "uppercase": bool,
     "position": str,
+    "h_offset": str,
     "bg_enabled": bool,
     "bg_color": str,
     "bg_radius": int,
