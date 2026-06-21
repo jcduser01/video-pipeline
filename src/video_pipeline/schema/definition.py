@@ -427,6 +427,28 @@ def build_schema() -> Schema:
         ],
     ))
 
+    # caption.preview: bake the caption layer over a checkerboard -> previewable
+    # h264 proxy (GUI-only; the webview can't decode the alpha .mov directly).
+    tasks.append(Task(
+        id="caption.preview", step="caption", label="Build caption preview",
+        subcommand="proxy", optional=True,
+        consumes=["caption"], produces=["caption.preview"],
+        io=[
+            IOBinding(artifact="caption", role="input", via="positional", order=0),
+            IOBinding(artifact="caption.preview", role="output", via="flag", flag="-o"),
+        ],
+        hint="Checkerboard-baked preview of the caption layer.",
+        help="Renders the transparent caption overlay over a neutral checkerboard "
+             "into plain h264 so the previewer can play it in isolation. Optional — "
+             "enable it only when you want to preview the caption layer in the app.",
+        params=[
+            _profile_param(required=False),
+            Param("square", "number", flag="--square", min=4, max=64, step=4, default=16,
+                  hint="Checkerboard cell size (px).",
+                  ui=UI(label="Checker size", control="slider", group="Preview")),
+        ],
+    ))
+
     # qc: advisory check over base + caption.
     tasks.append(Task(
         id="safezone.qc", step="qc", label="Safe-zone QC",
@@ -512,11 +534,19 @@ def build_schema() -> Schema:
                  previewable=False,
                  hint="Editable caption file.",
                  help="Word-timed, glossary-corrected cues. Hand-edit before rendering."),
-        Artifact("caption", kind="layer", path="layers/captions.mov", previewable=True,
+        Artifact("caption", kind="layer", path="layers/captions.mov", previewable=False,
                  z_order=30, codec_hint="hevc-alpha",
                  hint="Styled caption overlay (transparent).",
                  help="The rendered caption layer the NLE stacks on top. Transparent "
-                      "HEVC-alpha — the one previewer alpha case (see the WKWebView spike)."),
+                      "HEVC-alpha — not previewed directly (the webview can't be relied "
+                      "on to decode alpha); the caption.preview proxy is its previewable "
+                      "form."),
+        Artifact("caption.preview", kind="media", path="layers/captions.preview.mp4",
+                 previewable=True, z_order=30, codec_hint="h264",
+                 hint="Caption layer over a checkerboard (preview).",
+                 help="The caption overlay baked over a neutral checkerboard into plain "
+                      "h264 so the previewer can play it in isolation. A GUI-only proxy — "
+                      "never bundled into an editor export."),
         Artifact("qc.report", kind="manifest", path="review/qc-report.json",
                  previewable=False,
                  hint="Safe-zone QC findings.",

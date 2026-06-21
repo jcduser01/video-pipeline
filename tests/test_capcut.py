@@ -72,5 +72,38 @@ class ExportTests(unittest.TestCase):
             export_capcut("/tmp/x", base="")
 
 
+class ProjectResolveTests(unittest.TestCase):
+    def test_handoff_project_fills_paths(self):
+        from video_pipeline.cli import build_parser, _resolve_project_paths
+
+        ns = build_parser().parse_args(["export", "premiere", "--project", "/p"])
+        _resolve_project_paths(
+            ns, ["decision", "reframed", "captions", "overlay", "composite"],
+            output_name="exports/premiere/reel.xml",
+        )
+        self.assertEqual(ns.decision, "/p/work/roughcut.decision.yml")
+        self.assertEqual(ns.reframed, "/p/work/base.mp4")
+        self.assertEqual(ns.composite, "/p/review/composite.mp4")
+        self.assertEqual(ns.output, "/p/exports/premiere/reel.xml")
+
+    def test_explicit_flag_wins_over_project(self):
+        from video_pipeline.cli import build_parser, _resolve_project_paths
+
+        ns = build_parser().parse_args(
+            ["export", "premiere", "--project", "/p", "--reframed", "/explicit.mp4"])
+        _resolve_project_paths(ns, ["reframed"], output_name="x")
+        self.assertEqual(ns.reframed, "/explicit.mp4")
+
+    def test_capcut_project_dry_run_plan(self):
+        with tempfile.TemporaryDirectory() as d:
+            res = export_capcut(  # capcut maps --captions to the overlay .mov
+                str(Path(d) / "exports" / "capcut"),
+                base=str(Path(d) / "work" / "base.mp4"),
+                captions=str(Path(d) / "layers" / "captions.mov"),
+                dry_run=True,
+            )
+            self.assertEqual(res["layers"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

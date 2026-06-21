@@ -61,6 +61,39 @@ _PROFILE_DIMS = {
 # src/video_pipeline/cli.py -> parents[2] = repo root.
 _DEFAULT_CONFIG_ROOT = Path(__file__).resolve().parents[2] / "config"
 
+# Standard project layout (mirrors the schema artifact paths). Lets `export
+# --project <root>` resolve every input + the bundle output by convention, so the
+# GUI drives an export with just --project + params (no per-arg path mapping).
+# NOTE (CEO decision pending): `reframed` resolves to work/base.mp4. The XML
+# handoff wants the reframed-but-UNCUT clip; if roughcut.render has rewritten
+# base.mp4 with the cut (for the composite preview), the two conflict. Surfaced
+# for the export input-model decision — see INI-087.
+_PROJECT_LAYOUT = {
+    "decision": "work/roughcut.decision.yml",
+    "reframed": "work/base.mp4",
+    "captions": "work/captions.yml",
+    "overlay": "layers/captions.mov",
+    "composite": "review/composite.mp4",
+    "base": "work/base.mp4",
+}
+
+
+def _resolve_project_paths(args: argparse.Namespace, keys, *, output_name: str) -> None:
+    """Fill any unset path args from ``args.project`` using the standard layout.
+
+    Only fills attributes left as ``None`` (explicit flags win). ``output_name`` is
+    the bundle-relative output (e.g. ``exports/premiere/reel.xml``).
+    """
+    root = getattr(args, "project", None)
+    if not root:
+        return
+    base = Path(root)
+    for k in keys:
+        if getattr(args, k, None) is None:
+            setattr(args, k, str(base / _PROJECT_LAYOUT[k]))
+    if getattr(args, "output", None) is None:
+        args.output = str(base / output_name)
+
 
 def _cmd_safezone_gen(args: argparse.Namespace) -> int:
     from .safezone import generate_spec
@@ -333,6 +366,19 @@ def _cmd_handoff(args: argparse.Namespace) -> int:
     # The `fcpxml` alias forces FCPXML; `handoff` honors --format (premiere default).
     fmt = getattr(args, "format", None) or "fcpxml"
 
+    # Resolve inputs + output from --project when given (explicit flags win).
+    ext = ".xml" if fmt == "premiere" else ".fcpxml"
+    name = args.project_name or (Path(args.project).name if args.project else "reel")
+    _resolve_project_paths(
+        args, ["decision", "reframed", "captions", "overlay", "composite"],
+        output_name=f"exports/{fmt}/{name}{ext}",
+    )
+    missing = [k for k in ("decision", "reframed", "output") if getattr(args, k) is None]
+    if missing:
+        print(f"error: missing {', '.join(missing)} — give them explicitly or use "
+              f"--project <root>", file=sys.stderr)
+        return 2
+
     out_w, out_h = _PROFILE_DIMS.get(args.profile, (1080, 1920))
     result = assemble_project(
         args.decision,
@@ -363,9 +409,17 @@ def _cmd_handoff(args: argparse.Namespace) -> int:
 
 
 def _add_handoff_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("decision", help="decision file path (.yml) — the base cut")
-    parser.add_argument("-o", "--output", required=True, help="project output path")
-    parser.add_argument("--reframed", required=True,
+    parser.add_argument("decision", nargs="?", default=None,
+                        help="decision file path (.yml) — the base cut "
+                             "(resolved from --project when omitted)")
+    parser.add_argument("-o", "--output", default=None,
+                        help="project output path (defaults under the project's "
+                             "exports/ when --project is given)")
+    parser.add_argument("--project", default=None,
+                        help="project root; resolves decision/reframed/captions/overlay/"
+                             "composite + the output path from the standard layout, so "
+                             "the GUI can drive the export with just --project + params")
+    parser.add_argument("--reframed", default=None,
                         help="the reframed vertical clip the base cut references "
                              "(work/<clip>-9x16.mp4); reframe is baked, not a transform")
     parser.add_argument("--captions", default=None,
@@ -385,8 +439,41 @@ def _add_handoff_args(parser: argparse.ArgumentParser) -> None:
                         help="project/sequence name (default: the decision file's source)")
 
 
+def _cmd_proxy(args: argparse.Namespace) -> int:
+    from .proxy import render_proxy
+
+    w, h = _PROFILE_DIMS.get(args.profile, (1080, 1920))
+    cmd = render_proxy(
+        args.layer, args.output, width=w, height=h, fps=args.fps,
+        square=args.square, dry_run=args.dry_run,
+    )
+    if args.dry_run:
+        print("proxy command (dry run):")
+        print("  " + " ".join(cmd))
+    else:
+        print(f"wrote {args.output}  ({w}x{h} checkerboard preview)")
+    return 0
+
+
 def _cmd_export_capcut(args: argparse.Namespace) -> int:
     from .capcut import export_capcut
+
+    # Resolve media + bundle dir from --project (explicit flags win). CapCut's
+    # --captions is the rendered overlay .mov (not the caption .yml), so it maps to
+    # the "overlay" layout entry.
+    if args.project:
+        root = Path(args.project)
+        if args.base is None:
+            args.base = str(root / _PROJECT_LAYOUT["base"])
+        if args.captions is None:
+            args.captions = str(root / _PROJECT_LAYOUT["overlay"])
+        if args.composite is None:
+            args.composite = str(root / _PROJECT_LAYOUT["composite"])
+        if args.output is None:
+            args.output = str(root / "exports/capcut")
+    if args.base is None:
+        print("error: missing base — give --base or --project <root>", file=sys.stderr)
+        return 2
 
     result = export_capcut(
         args.output,
@@ -636,6 +723,23 @@ def build_parser() -> argparse.ArgumentParser:
                     help="print the ffmpeg command without rendering")
     co.set_defaults(func=_cmd_composite)
 
+    # proxy — bake a transparent layer over a checkerboard into h264 for preview.
+    px = sub.add_parser(
+        "proxy",
+        help="bake a transparent layer over a checkerboard into an h264 preview proxy",
+    )
+    px.add_argument("layer", help="the transparent layer (.mov) to preview")
+    px.add_argument("-o", "--output", required=True,
+                    help="proxy output path (layers/<name>.preview.mp4)")
+    px.add_argument("--profile", default="reels-9x16",
+                    help="output profile -> proxy dimensions (default reels-9x16)")
+    px.add_argument("--fps", type=int, default=30, help="frame rate (default 30)")
+    px.add_argument("--square", type=int, default=16,
+                    help="checkerboard cell size in px (default 16)")
+    px.add_argument("--dry-run", action="store_true",
+                    help="print the ffmpeg command without rendering")
+    px.set_defaults(func=_cmd_proxy)
+
     # handoff — the editor project. Default format is Premiere-compatible FCP7
     # XML (Premiere does not import FCPXML); --format fcpxml targets Resolve / FCP.
     h = sub.add_parser(
@@ -673,9 +777,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     exc = ex_sub.add_parser("capcut",
                             help="arranged-media folder (CapCut imports no project)")
-    exc.add_argument("-o", "--output", required=True,
-                     help="bundle directory (exports/capcut)")
-    exc.add_argument("--base", required=True,
+    exc.add_argument("-o", "--output", default=None,
+                     help="bundle directory (default <project>/exports/capcut)")
+    exc.add_argument("--project", default=None,
+                     help="project root; resolves base/captions/composite + the "
+                          "bundle dir from the standard layout")
+    exc.add_argument("--base", default=None,
                      help="the rendered base cut (work/base.mp4)")
     exc.add_argument("--captions", default=None,
                      help="the caption overlay layer (.mov)")
