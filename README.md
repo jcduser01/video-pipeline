@@ -31,14 +31,16 @@ The pure logic (project contract, safe-zone geometry, rough-cut proposal, captio
 chunking/placement/export) is plain Python and runs anywhere — it is what the test
 suite covers, with no native toolchain required.
 
-Three steps need a local machine with the native toolchain installed, so they run
+A few steps need a local machine with the native toolchain installed, so they run
 on the editing/render machine rather than in CI:
 
 - **Transcription** (`mlx-whisper`) — Apple-Silicon Mac; local, word-level
   timestamps, nothing leaves the machine. A precomputed Whisper-JSON transcript
   can be supplied instead, which removes this requirement.
 - **Reframe / rough-cut render** — needs an `ffmpeg` binary.
-- **Caption overlay render** — needs Node + the bundled `remotion/` project.
+- **Caption / source-card render** — needs Node + the bundled `remotion/` project.
+- **Composite / overlay render** — needs `ffmpeg` (flatten the base + caption /
+  overlay layers; place timed/scaled overlays).
 
 ## Install
 
