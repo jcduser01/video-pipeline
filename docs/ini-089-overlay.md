@@ -44,8 +44,8 @@ overlay/
   decision.py    # OverlayItem + OverlayList + overlay.def round-trip   [BUILT]
   occupancy.py   # placement→rect + overlay.occupancy descriptor        [BUILT]
   propose.py     # transcript→window proposer (phrase + keyword)        [BUILT]
-  runner.py      # resolve overlay.def + occupancy → PlacedOverlay,     [TODO]
-                 # run the composite, emit occupancy json
+  runner.py      # resolve overlay.def + occupancy → PlacedOverlay,     [BUILT]
+                 # run the composite, emit occupancy json               (audio-mix follow-on)
   card/          # Phase B source-card producer
     content.py   # CardContent + JSON round-trip (the product)          [BUILT]
     capture.py   # PageFetcher seam + card_from_page structuring        [BUILT]
@@ -97,15 +97,13 @@ base audio through. Per-overlay audio duck/mute is layered by the runner.
 
 ## Remaining for Phase A
 
-1. **`overlay/propose.py`** — match an overlay (by `text`/keyword or an explicit
-   span) to its discussed window in the `Transcript`; write `overlay.def`. Pure,
-   unit-tested.
-2. **`overlay/runner.py`** — read (possibly hand-edited) `overlay.def`, build the
-   occupancy descriptor, resolve each item to a `PlacedOverlay` (placement→rect,
-   `loop` from `kind`), run the composite, write `overlay.occupancy` json. The
-   daily-driver seam (mirrors `composite/runner.py`).
+1. ~~`overlay/propose.py`~~ — **BUILT** (phrase + keyword-cluster window proposer).
+2. ~~`overlay/runner.py`~~ — **BUILT** (`resolve_placed_overlays` placement→rect +
+   `loop` from kind; `write_occupancy`; `render_overlays` composite seam mirroring
+   `composite/runner.py`). Audio mixing is the one carve-out (item 3).
 3. **Audio policy** — `duck`/`mute` for video overlays (amix/sidechain or volume on
-   the overlay's audio; `keep` passes base audio through as today).
+   the overlay's audio; `keep` passes base audio through as today). The runner
+   currently drops a video overlay's own audio (safe `mute` default).
 4. **Caption-dodge** — caption placement consumes `overlay.occupancy`: when a cue's
    window intersects an active overlay rect, the caption box avoids it (extends
    `captions/placement.py` to take occupancy rects; coordinate with INI-088 control
