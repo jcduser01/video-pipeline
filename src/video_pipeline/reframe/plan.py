@@ -172,6 +172,27 @@ def _robust_center(subjects: List[FrameSubject], src_w: int) -> float:
     return float(median(xs))
 
 
+def _crop_y(
+    subjects: List[FrameSubject],
+    src_h: int,
+    crop_h: int,
+    subject_y_frac: Optional[float],
+) -> int:
+    """Top edge of the crop window.
+
+    ``subject_y_frac`` (INI-090 framing) anchors the subject's vertical centre at
+    that fraction of the crop height; ``None`` centres the crop (legacy). Either way
+    the result is clamped so the window stays inside the source frame — so a
+    full-height crop (no vertical slack) is always ``y == 0``.
+    """
+    if subject_y_frac is None:
+        return (src_h - crop_h) // 2
+    cys = [s.cy for s in subjects if s.confidence > 0]
+    cy = float(median(cys)) if cys else src_h / 2.0
+    y = int(round(cy - subject_y_frac * crop_h))
+    return min(max(y, 0), src_h - crop_h)
+
+
 # ── plan builders ─────────────────────────────────────────────────────────────
 
 def _static_plan(subjects, src_w, src_h, out_w, out_h, crop_w, crop_h, y, duration) -> CropPlan:
@@ -197,6 +218,8 @@ def build_crop_plan(
     max_pan_frac_per_s: float = 0.12,
     simplify_tol_px: float = 3.0,
     duration: Optional[float] = None,
+    scale: float = 1.0,
+    subject_y_frac: Optional[float] = None,
 ) -> CropPlan:
     """Build a crop plan from subject centres.
 
@@ -211,9 +234,18 @@ def build_crop_plan(
                             (caps how fast the crop can travel -> eased moves).
         simplify_tol_px:    keyframe simplification tolerance (Douglas-Peucker).
         duration:           clip duration (for the final keyframe's end time).
+        scale:              crop tightness (INI-090 framing). 1.0 = widest native
+                            crop; < 1.0 zooms in (smaller crop -> subject larger).
+                            > 1.0 clamps to native (pull-back-with-fill is Phase 3b).
+        subject_y_frac:     where the subject's vertical centre sits in the crop
+                            (0=top, 1=bottom). Only bites when crop_h < src_h.
+                            None keeps the legacy centred crop.
     """
     crop_w, crop_h = crop_dims(src_w, src_h, out_w, out_h)
-    y = (src_h - crop_h) // 2
+    if scale != 1.0:
+        crop_w = min(src_w, max(2, int(round(crop_w * scale / 2)) * 2))
+        crop_h = min(src_h, max(2, int(round(crop_h * scale / 2)) * 2))
+    y = _crop_y(subjects, src_h, crop_h, subject_y_frac)
 
     confident = [s for s in subjects if s.confidence > 0]
 

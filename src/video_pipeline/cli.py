@@ -187,19 +187,41 @@ def _cmd_project_init(args: argparse.Namespace) -> int:
 def _cmd_reframe(args: argparse.Namespace) -> int:
     import shutil
 
+    from .reframe.framing import framing_intent
     from .reframe.probe import reframe
 
+    # Framing intent -> crop scale / vertical anchor / paired caption anchor.
+    # Explicit --scale / --subject-y override the intent.
+    scale, subject_y_frac, caption_position = 1.0, None, None
+    if getattr(args, "framing", None):
+        fi = framing_intent(args.framing)
+        scale, subject_y_frac, caption_position = (
+            fi.subject_scale, fi.subject_y_frac, fi.caption_position)
+    if getattr(args, "scale", None) is not None:
+        scale = args.scale
+    if getattr(args, "subject_y", None) is not None:
+        subject_y_frac = args.subject_y
+
+    # Target dims: aspect + resolution (INI-090) when --aspect is set; else legacy --profile.
+    aspect = getattr(args, "aspect", None)
     out_w, out_h = _PROFILE_DIMS.get(args.profile, (1080, 1920))
+
     cmd = reframe(
         args.input, args.output,
         out_w=out_w, out_h=out_h, mode=args.mode,
         tracker_name=args.tracker, dry_run=args.dry_run,
+        aspect=aspect, resolution=getattr(args, "resolution", "auto"),
+        scale=scale, subject_y_frac=subject_y_frac,
+        occupancy_out=getattr(args, "occupancy_out", None),
+        caption_position=caption_position,
     )
     if args.dry_run:
         print("ffmpeg command (dry run):")
         print("  " + " ".join(cmd))
     else:
         print(f"wrote {args.output}")
+        if getattr(args, "occupancy_out", None):
+            print(f"wrote {args.occupancy_out}  (subject occupancy -> caption dodge)")
         # Persist the reframed-but-uncut clip as a stable artifact so the editor
         # handoff still has it after roughcut.render rewrites base.mp4 with the cut.
         if getattr(args, "reframed_out", None):
@@ -347,7 +369,25 @@ def _cmd_captions_render(args: argparse.Namespace) -> int:
     spec = SafeZoneSpec.from_json(_P(args.safezone).read_text(encoding="utf-8"))
     # karaoke is on if the style/config, the caption file header, or --karaoke says so.
     karaoke = style.karaoke or track.karaoke or args.karaoke
-    props = build_props_from_safezone(track, style, spec, fps=args.fps, karaoke=karaoke)
+
+    # Subject occupancy (INI-090 Phase 2): captions dodge the subject the same way
+    # they dodge overlays. Rescaled onto the safe-zone spec's frame; the framing
+    # intent's paired caption anchor is honored unless --position overrides it.
+    avoid_windows = None
+    position = getattr(args, "position", None)
+    occ = getattr(args, "subject_occupancy", None)
+    if occ:
+        from .reframe.occupancy import read_occupancy
+        import json as _json
+        avoid_windows = read_occupancy(occ, to_w=spec.image_width, to_h=spec.image_height)
+        if position is None:
+            hint = _json.loads(_P(occ).read_text(encoding="utf-8")).get("caption_position")
+            position = hint
+
+    props = build_props_from_safezone(
+        track, style, spec, fps=args.fps, karaoke=karaoke,
+        position=position, avoid_windows=avoid_windows,
+    )
 
     props_path = args.props or str(_P(args.output).with_suffix(".props.json"))
     write_remotion_props(props, props_path)
@@ -741,13 +781,28 @@ def build_parser() -> argparse.ArgumentParser:
                    help="disable speech/filler trimming (e.g. live-off-the-mixer DJ sets)")
     i.set_defaults(func=_cmd_project_init)
 
-    r = sub.add_parser("reframe", help="run the landscape->portrait reframe probe")
+    r = sub.add_parser("reframe", help="reframe the source to the target format")
     r.add_argument("input")
     r.add_argument("-o", "--output", required=True)
     r.add_argument("--reframed-out", default=None,
                    help="also copy the reframed-uncut clip here (work/reframed.mp4) "
                         "as the stable editor-handoff source")
-    r.add_argument("--profile", default="reels-9x16")
+    r.add_argument("--profile", default="reels-9x16",
+                   help="legacy fixed-dimension profile (used when --aspect is omitted)")
+    from .target_format import ASPECT_PRESETS as _AP, TIERS as _TIERS
+    from .reframe.framing import FRAMING_INTENTS as _FI
+    r.add_argument("--aspect", default=None, choices=sorted(_AP),
+                   help="target aspect preset (INI-090); overrides --profile dims")
+    r.add_argument("--resolution", default="auto", choices=("auto", *_TIERS),
+                   help="resolution tier or 'auto' (highest non-upscaling tier)")
+    r.add_argument("--framing", default=None, choices=sorted(_FI),
+                   help="composition intent: talking-head | performer | wide-context")
+    r.add_argument("--scale", type=float, default=None,
+                   help="crop tightness override (1.0=widest native; <1 zooms in)")
+    r.add_argument("--subject-y", type=float, default=None, dest="subject_y",
+                   help="subject vertical anchor override (0=top..1=bottom)")
+    r.add_argument("--occupancy-out", default=None, dest="occupancy_out",
+                   help="write subject occupancy here for the caption layer to dodge")
     r.add_argument("--mode", default="static", choices=["static", "dynamic"])
     r.add_argument("--tracker", default="opencv", choices=["opencv", "mediapipe"],
                    help="subject tracker: opencv (default, bundled, no download) "
@@ -856,6 +911,12 @@ def build_parser() -> argparse.ArgumentParser:
     cr.add_argument("--identity", default=None,
                     help="caption-style identity (default: from the caption file)")
     cr.add_argument("--safezone", required=True, help="safe-zone spec JSON")
+    cr.add_argument("--subject-occupancy", default=None, dest="subject_occupancy",
+                    help="subject occupancy JSON from reframe --occupancy-out; "
+                         "captions dodge the subject (INI-090 Phase 2)")
+    cr.add_argument("--position", default=None,
+                    choices=["upper-third", "center", "lower-third"],
+                    help="caption anchor; overrides the style + any framing-intent hint")
     cr.add_argument("--props", default=None,
                     help="props JSON path to write (default: alongside output)")
     cr.add_argument("--fps", type=int, default=30)
