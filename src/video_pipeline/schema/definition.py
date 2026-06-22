@@ -384,12 +384,14 @@ def build_schema() -> Schema:
     tasks.append(Task(
         id="reframe", step="reframe", label="Reframe to target format",
         subcommand="reframe", optional=True,
-        consumes=["base"], produces=["base", "reframed"],
+        consumes=["base"], produces=["base", "reframed", "subject.occupancy"],
         io=[
             IOBinding(artifact="base", role="input", via="positional", order=0),
             IOBinding(artifact="base", role="output", via="flag", flag="-o"),
             IOBinding(artifact="reframed", role="output", via="flag",
                       flag="--reframed-out"),
+            IOBinding(artifact="subject.occupancy", role="output", via="flag",
+                      flag="--occupancy-out"),
         ],
         hint="Crop the source to the target format (portrait, square, or landscape).",
         help="Subject-tracking crop. Static holds one crop; dynamic follows the subject. "
@@ -408,6 +410,18 @@ def build_schema() -> Schema:
                   help="opencv is dependency-light; mediapipe is the higher-quality "
                        "daily-driver face/pose tracker.",
                   ui=UI(label="Tracker", control="dropdown", group="Crop")),
+            Param("scale", "number", flag="--scale", min=0.3, max=1.0, step=0.05,
+                  hint="Crop tightness override (optional).",
+                  help="Overrides the framing intent's crop tightness. 1.0 = widest "
+                       "native crop; lower zooms in. Leave unset to let Framing decide. "
+                       "(Pulling back wider than native is not yet supported.)",
+                  ui=UI(label="Scale (override)", control="slider", group="Framing")),
+            Param("subject_y", "number", flag="--subject-y", min=0.0, max=1.0, step=0.05,
+                  hint="Vertical anchor override (optional).",
+                  help="Overrides where the subject sits vertically (0=top, 1=bottom). "
+                       "Only bites when the crop is shorter than the source. Leave unset "
+                       "to let Framing decide.",
+                  ui=UI(label="Subject Y (override)", control="slider", group="Framing")),
             Param("dry_run", "bool", arity="switch", flag="--dry-run", default=False,
                   hint="Plan the crop without rendering.",
                   help="Computes and prints the crop plan but writes no video — fast way "
@@ -548,6 +562,19 @@ def build_schema() -> Schema:
             _identity_param(required=False,
                   hint="Override the identity style.",
                   ui=UI(label="Identity", group="Style")),
+            Param("subject_occupancy", "path", flag="--subject-occupancy",
+                  path=PathSpec(kind="file", extensions=["json"]),
+                  hint="Subject occupancy from reframe (optional) — captions dodge it.",
+                  help="Point at the reframe step's occupancy file (work/reframe."
+                       "occupancy.json, INI-090 Phase 2). When set, captions relocate "
+                       "off the subject; absent or missing, captions render normally.",
+                  ui=UI(label="Subject occupancy", control="picker", group="Placement")),
+            Param("position", "enum", flag="--position",
+                  options=["upper-third", "center", "lower-third"],
+                  hint="Caption anchor (optional override).",
+                  help="Forces the caption band; overrides the style default and any "
+                       "framing-intent hint carried in the occupancy file.",
+                  ui=UI(label="Caption position", control="dropdown", group="Placement")),
             Param("karaoke", "bool", arity="switch", flag="--karaoke", default=False,
                   hint="Active-word highlight.",
                   ui=UI(label="Karaoke highlight", control="toggle", group="Style")),
@@ -859,6 +886,12 @@ def build_schema() -> Schema:
                       "alongside base.mp4. The editor handoffs reference this (not base, "
                       "which roughcut.render rewrites with the cut) so the decision file's "
                       "KEEP segments lay over the full clip as separate, trimmable clips."),
+        Artifact("subject.occupancy", kind="descriptor", path="work/reframe.occupancy.json",
+                 previewable=False,
+                 hint="The subject's footprint in the reframed frame.",
+                 help="Written by reframe (INI-090): the tracked subject's box projected "
+                      "into the target frame, as caption avoid-windows. The caption render "
+                      "optionally consumes it so captions dodge the subject."),
         Artifact("safezone.def", kind="descriptor", path="work/safezone.json",
                  previewable=False,
                  hint="Safe-zone polygon spec.",

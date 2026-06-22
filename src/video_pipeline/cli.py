@@ -376,7 +376,9 @@ def _cmd_captions_render(args: argparse.Namespace) -> int:
     avoid_windows = None
     position = getattr(args, "position", None)
     occ = getattr(args, "subject_occupancy", None)
-    if occ:
+    if occ and _P(occ).exists():
+        # Tolerant: a path may be wired by the GUI even when reframe was skipped and
+        # wrote no occupancy — render normally rather than fail.
         from .reframe.occupancy import read_occupancy
         import json as _json
         avoid_windows = read_occupancy(occ, to_w=spec.image_width, to_h=spec.image_height)
