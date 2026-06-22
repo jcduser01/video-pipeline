@@ -75,6 +75,30 @@ class Manifest:
     raw: Dict[str, Any] = field(default_factory=dict)
 
     @property
+    def target(self):
+        """The project-level :class:`Target` (INI-091) — aspect + resolution.
+
+        Source of truth is the ``target:`` block (``{aspect, resolution}``). For
+        back-compat, a project that declares only the legacy ``profile`` gets a
+        Target derived from it (tolerant: unknown profiles fall back to the default
+        full-portrait/auto Target). An explicit ``target:`` always wins over
+        ``profile``. Lazily imported so the manifest layer stays light.
+        """
+        from .target_format import Target
+
+        block = (self.raw.get("target") or {}) if self.raw else {}
+        if block:
+            aspect = block.get("aspect")
+            resolution = block.get("resolution", "auto")
+            if aspect:
+                return Target(aspect=aspect, resolution=resolution)
+            # aspect omitted but a target block present: derive aspect from profile,
+            # honor the block's resolution.
+            base = Target.from_profile(self.profile)
+            return Target(aspect=base.aspect, resolution=resolution)
+        return Target.from_profile(self.profile)
+
+    @property
     def safezone_spec_filename(self) -> str:
         return f"{self.profile}.safezone.json"
 
@@ -162,12 +186,30 @@ def validate_manifest_dict(data: dict) -> None:
     jsonschema.validate(instance=data, schema=_load_schema())
 
 
+# Aspect-preset -> a representative legacy profile slug, for projects that declare
+# only ``target`` (no ``profile``): the safe-zone spec filename still keys off a
+# profile slug, so a target-only project derives one here. Tolerant best-effort —
+# aspects with no legacy slug fall back to the full-portrait spec.
+_ASPECT_TO_PROFILE = {
+    "full-portrait": "reels-9x16",
+    "wide-portrait": "feed-portrait-4x5",
+    "square": "feed-square-1x1",
+    "widescreen": "feed-landscape-16x9",
+}
+
+
 def manifest_from_dict(data: dict) -> Manifest:
     validate_manifest_dict(data)
     rough = data.get("rough_cut") or {}
+    profile = data.get("profile")
+    if profile is None:
+        # target-only project: derive a back-compat profile slug from the aspect so
+        # safezone_spec_filename and the legacy dims map still resolve.
+        aspect = (data.get("target") or {}).get("aspect")
+        profile = _ASPECT_TO_PROFILE.get(aspect, "reels-9x16")
     return Manifest(
         identity=data["identity"],
-        profile=data["profile"],
+        profile=profile,
         trim_filler=bool(rough.get("trim_filler", True)),
         project_id=data.get("project_id"),
         metadata=data.get("metadata") or {},

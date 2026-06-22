@@ -87,6 +87,74 @@ class TestManifestValidation(unittest.TestCase):
         self.assertEqual(m.profile, "reels-9x16")
 
 
+class TestManifestTarget(unittest.TestCase):
+    """The project-level Target (INI-091): explicit target wins; profile is a
+    tolerant fallback; either one satisfies the schema."""
+
+    def test_legacy_profile_only_derives_a_target(self):
+        m = manifest_from_dict({"identity": "dyson-hope", "profile": "reels-9x16"})
+        self.assertEqual(m.target.aspect, "full-portrait")
+        self.assertEqual(m.target.resolution, "auto")
+
+    def test_legacy_feed_profile_maps_to_its_aspect(self):
+        m = manifest_from_dict({"identity": "dyson-hope", "profile": "feed-square-1x1"})
+        self.assertEqual(m.target.aspect, "square")
+
+    def test_explicit_target_block(self):
+        m = manifest_from_dict({
+            "identity": "dyson-hope",
+            "target": {"aspect": "widescreen", "resolution": "4k"},
+        })
+        self.assertEqual(m.target.aspect, "widescreen")
+        self.assertEqual(m.target.resolution, "4k")
+
+    def test_target_defaults_resolution_to_auto(self):
+        m = manifest_from_dict({
+            "identity": "dyson-hope",
+            "target": {"aspect": "portrait"},
+        })
+        self.assertEqual(m.target.resolution, "auto")
+
+    def test_explicit_target_wins_over_profile(self):
+        m = manifest_from_dict({
+            "identity": "dyson-hope",
+            "profile": "reels-9x16",
+            "target": {"aspect": "square", "resolution": "1080p"},
+        })
+        self.assertEqual(m.target.aspect, "square")
+        self.assertEqual(m.target.resolution, "1080p")
+
+    def test_target_only_project_derives_a_profile_slug(self):
+        # No profile field: safezone_spec_filename still resolves to a real slug.
+        m = manifest_from_dict({
+            "identity": "dyson-hope",
+            "target": {"aspect": "square"},
+        })
+        self.assertEqual(m.profile, "feed-square-1x1")
+        self.assertEqual(m.safezone_spec_filename, "feed-square-1x1.safezone.json")
+
+    def test_neither_target_nor_profile_rejected(self):
+        import jsonschema
+        with self.assertRaises(jsonschema.ValidationError):
+            manifest_from_dict({"identity": "dyson-hope"})
+
+    def test_bad_aspect_in_target_rejected(self):
+        import jsonschema
+        with self.assertRaises(jsonschema.ValidationError):
+            manifest_from_dict({
+                "identity": "dyson-hope",
+                "target": {"aspect": "imax"},
+            })
+
+    def test_bad_resolution_in_target_rejected(self):
+        import jsonschema
+        with self.assertRaises(jsonschema.ValidationError):
+            manifest_from_dict({
+                "identity": "dyson-hope",
+                "target": {"aspect": "square", "resolution": "8k"},
+            })
+
+
 class TestProjectScaffold(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

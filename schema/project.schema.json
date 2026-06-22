@@ -2,9 +2,13 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://jasonos/video-pipeline/project.schema.json",
   "title": "video-pipeline project.yml",
-  "description": "Per-project manifest. Declares identity (-> glossary layer), profile (-> dimensions + safe-zone spec), and rough-cut behaviour.",
+  "description": "Per-project manifest. Declares identity (-> glossary layer), the project-level target (aspect + resolution; INI-091), and rough-cut behaviour. The legacy 'profile' field is still accepted as a tolerant fallback that maps to a target.",
   "type": "object",
-  "required": ["identity", "profile"],
+  "required": ["identity"],
+  "anyOf": [
+    {"required": ["target"]},
+    {"required": ["profile"]}
+  ],
   "additionalProperties": false,
   "properties": {
     "project_id": {
@@ -16,10 +20,29 @@
       "pattern": "^[a-z0-9][a-z0-9-]*$",
       "description": "Selects the config/glossary identity layer (e.g. dyson-hope, sigil-zero, jason-cook-design)."
     },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["aspect"],
+      "description": "The project-level output target (INI-091): chosen once, upstream of safezone and reframe. Source of truth over the legacy 'profile'. Changing the aspect resets resolution (-> auto) and invalidates framing + safe zone + captions/QC downstream; changing only resolution invalidates the pixel-dependent downstream (safe zone / captions / QC) but not framing.",
+      "properties": {
+        "aspect": {
+          "type": "string",
+          "enum": ["cinematic", "widescreen", "full-portrait", "portrait", "wide-portrait", "square", "classic-tv"],
+          "description": "Target aspect preset (shape). full-portrait (9:16) is the short-form default; also portrait (2:3), wide-portrait (4:5), square (1:1), widescreen (16:9), cinematic (7:3), classic-tv (4:3)."
+        },
+        "resolution": {
+          "type": "string",
+          "enum": ["auto", "4k", "1440p", "1080p", "720p"],
+          "default": "auto",
+          "description": "Resolution tier, or 'auto' (highest non-upscaling tier within 5%). Resets to 'auto' whenever the aspect changes."
+        }
+      }
+    },
     "profile": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]*$",
-      "description": "Output target. Selects dimensions + config/safezone/<profile>.safezone.json (e.g. reels-9x16)."
+      "description": "DEPRECATED (INI-091): legacy output target. Accepted as a tolerant fallback that maps to a target (reels-9x16/story-9x16 -> full-portrait, feed-portrait-4x5 -> wide-portrait, feed-square-1x1 -> square, feed-landscape-16x9 -> widescreen). Selects config/safezone/<profile>.safezone.json. Prefer 'target'."
     },
     "rough_cut": {
       "type": "object",

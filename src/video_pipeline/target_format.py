@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import Dict, Tuple
+from typing import Dict, FrozenSet, Optional, Tuple
 
 
 # ── data types ─────────────────────────────────────────────────────────────────
@@ -196,3 +196,180 @@ def resolve(
     if selection == "auto":
         return resolve_auto(aspect_key, crop_w, crop_h, tolerance=tolerance)
     return resolution_target(aspect_key, selection)
+
+
+# ── project-level Target value object (INI-091) ─────────────────────────────────
+
+# Valid resolution selections: "auto" or a tier key.
+RESOLUTION_SELECTIONS: Tuple[str, ...] = ("auto", *TIERS)
+
+# Tolerant map: legacy per-step ``profile`` slugs -> a project Target. Lets existing
+# project.yml files (and INI-090 fixtures) keep declaring ``profile`` while the new
+# code reads a Target. Aspect is derived from the slug; resolution defaults to Auto
+# (the legacy profiles encoded a 1080-class fixed size, which Auto reproduces for the
+# common 1080-class crop and otherwise picks the best non-upscaling tier).
+PROFILE_TO_ASPECT: Dict[str, str] = {
+    "reels-9x16": "full-portrait",
+    "story-9x16": "full-portrait",
+    "feed-portrait-4x5": "wide-portrait",
+    "feed-square-1x1": "square",
+    "feed-landscape-16x9": "widescreen",
+}
+
+
+@dataclass(frozen=True)
+class Target:
+    """The project-level Target — one aspect shape + one resolution selection.
+
+    Chosen once per project (INI-091), upstream of safezone and reframe, replacing
+    the legacy per-step ``--profile``/aspect selector. ``aspect`` is an aspect-preset
+    key; ``resolution`` is ``"auto"`` or a tier key. Immutable and self-validating so
+    an invalid Target can never reach the resolver/crop math.
+    """
+
+    aspect: str = DEFAULT_ASPECT
+    resolution: str = "auto"
+
+    def __post_init__(self) -> None:
+        # Validate eagerly: raises ValueError on an unknown aspect/selection.
+        aspect_preset(self.aspect)
+        if self.resolution not in RESOLUTION_SELECTIONS:
+            raise ValueError(
+                f"unknown resolution selection {self.resolution!r}; "
+                f"valid: {RESOLUTION_SELECTIONS}"
+            )
+
+    @property
+    def preset(self) -> AspectPreset:
+        return aspect_preset(self.aspect)
+
+    def resolve(self, crop_w: int, crop_h: int,
+                tolerance: float = UPSCALE_TOLERANCE) -> ResolutionTarget:
+        """Resolve this Target's resolution against a native crop size."""
+        return resolve(self.aspect, self.resolution, crop_w, crop_h, tolerance=tolerance)
+
+    @classmethod
+    def from_profile(cls, profile: Optional[str]) -> "Target":
+        """Tolerant back-compat: map a legacy ``profile`` slug to a Target.
+
+        Unknown/absent profiles fall back to the default Target (full-portrait/auto)
+        rather than raising — the legacy path was always best-effort, and INI-091
+        keeps any existing project loadable.
+        """
+        aspect = PROFILE_TO_ASPECT.get(profile or "", DEFAULT_ASPECT)
+        return cls(aspect=aspect, resolution="auto")
+
+
+# ── downstream reset cascade (INI-091, the testable heart) ──────────────────────
+
+# Downstream artifacts a Target change can invalidate, in pipeline order.
+#   framing  — the reframe's composition proposal (subject_scale/subject_y).
+#   reframe  — the crop geometry / reframed clip (depends on aspect shape).
+#   safezone — the safe-zone spec (its pixel resolution tracks the target size).
+#   captions — caption layout/render (sized to the frame).
+#   qc       — safe-zone QC (re-checks against the new frame).
+DOWNSTREAM_ARTIFACTS: Tuple[str, ...] = (
+    "framing", "reframe", "safezone", "captions", "qc",
+)
+
+# Artifacts whose validity depends on the *aspect shape* (the crop geometry / the
+# subject's framing). Changing the aspect invalidates these; a resolution-only
+# change does NOT (the shape is unchanged, only the pixel size).
+_ASPECT_DEPENDENT: FrozenSet[str] = frozenset(
+    {"framing", "reframe", "safezone", "captions", "qc"}
+)
+
+# Artifacts whose validity depends on the *pixel resolution* of the frame. A
+# resolution-only change invalidates these (their pixel geometry must regenerate)
+# but NOT framing/reframe (the crop shape and subject composition are unchanged —
+# the reframe re-scales to the new size without re-proposing the crop).
+_RESOLUTION_DEPENDENT: FrozenSet[str] = frozenset(
+    {"safezone", "captions", "qc"}
+)
+
+
+@dataclass(frozen=True)
+class ResetResult:
+    """Which downstream artifacts a Target change invalidates, and why.
+
+    ``invalidated`` is the ordered tuple of artifact keys that must regenerate.
+    ``aspect_changed`` / ``resolution_changed`` expose the two axes independently so
+    a caller can explain the cascade (and so the resolution-reset rule — change the
+    aspect and resolution snaps back to Auto — is observable).
+    """
+
+    invalidated: Tuple[str, ...]
+    aspect_changed: bool
+    resolution_changed: bool
+    resolution_reset_to_auto: bool
+
+    def __contains__(self, artifact: str) -> bool:
+        return artifact in self.invalidated
+
+    def __bool__(self) -> bool:
+        return bool(self.invalidated)
+
+
+def reset_downstream(old: Target, new: Target) -> ResetResult:
+    """Pure cascade: which downstream artifacts a Target change invalidates.
+
+    Rules (INI-091 locked spec):
+      - **Aspect change** resets *everything* downstream — framing re-proposes, the
+        reframe crop geometry changes, the safe zone regenerates, captions/QC are
+        invalidated — AND resolution snaps back to **Auto** (the new aspect's tiers
+        are different, so a tier carried over from the old aspect is meaningless).
+      - **Resolution-only change** invalidates the pixel-dependent downstream
+        (safezone pixel resolution, captions, QC) but NOT framing/reframe (the crop
+        shape and subject composition are unchanged — the render re-scales).
+      - **No change** invalidates nothing.
+
+    Returns a :class:`ResetResult`. Note: the caller decides what ``new`` is; this
+    function only *reports* whether, given the cascade, the resolution should have
+    been reset to Auto on an aspect change (``resolution_reset_to_auto``). Pair it
+    with :func:`apply_reset` to get the corrected new Target.
+    """
+    aspect_changed = old.aspect != new.aspect
+    resolution_changed = old.resolution != new.resolution
+
+    if aspect_changed:
+        # Aspect drives the widest reset; resolution is forced back to Auto.
+        invalidated = tuple(a for a in DOWNSTREAM_ARTIFACTS if a in _ASPECT_DEPENDENT)
+        reset_to_auto = new.resolution != "auto"
+        return ResetResult(
+            invalidated=invalidated,
+            aspect_changed=True,
+            resolution_changed=resolution_changed,
+            resolution_reset_to_auto=reset_to_auto,
+        )
+
+    if resolution_changed:
+        invalidated = tuple(
+            a for a in DOWNSTREAM_ARTIFACTS if a in _RESOLUTION_DEPENDENT
+        )
+        return ResetResult(
+            invalidated=invalidated,
+            aspect_changed=False,
+            resolution_changed=True,
+            resolution_reset_to_auto=False,
+        )
+
+    return ResetResult(
+        invalidated=(),
+        aspect_changed=False,
+        resolution_changed=False,
+        resolution_reset_to_auto=False,
+    )
+
+
+def apply_reset(old: Target, new: Target) -> Tuple[Target, ResetResult]:
+    """Apply the cascade's resolution-reset rule, returning (effective_new, result).
+
+    When the aspect changed, the effective new Target has its resolution forced to
+    ``"auto"`` (the downstream-reset rule); otherwise ``new`` passes through. This is
+    the single place the "changing aspect resets resolution -> Auto" rule is enacted,
+    so the manifest layer and the GUI cannot drift on it.
+    """
+    result = reset_downstream(old, new)
+    if result.resolution_reset_to_auto:
+        new = Target(aspect=new.aspect, resolution="auto")
+    return new, result

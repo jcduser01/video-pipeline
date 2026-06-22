@@ -154,7 +154,16 @@ def _style_overrides_from_args(args: argparse.Namespace) -> dict:
 def _cmd_safezone_gen(args: argparse.Namespace) -> int:
     from .safezone import generate_spec
 
-    spec = generate_spec(args.template, profile=args.profile, key=args.key)
+    # INI-091: when --project is given, the safe zone keys off the SAME project-level
+    # target as the reframe (one target drives both). The spec's profile label is the
+    # target's derived profile slug, unless --profile is set explicitly.
+    profile = args.profile
+    if getattr(args, "project", None) and profile is None:
+        from .manifest import _ASPECT_TO_PROFILE, load_manifest
+
+        tgt = load_manifest(args.project).target
+        profile = _ASPECT_TO_PROFILE.get(tgt.aspect, "reels-9x16")
+    spec = generate_spec(args.template, profile=profile, key=args.key)
     out = args.output or f"{spec.profile}.safezone.json"
     Path(out).write_text(spec.to_json(), encoding="utf-8")
     notch = "with notch" if spec.has_notch else "no notch"
@@ -203,15 +212,29 @@ def _cmd_reframe(args: argparse.Namespace) -> int:
         # Bipolar override: -1 = subject at top, 0 = centred, +1 = bottom.
         subject_y_frac = max(0.0, min(1.0, (args.subject_y + 1.0) / 2.0))
 
-    # Target dims: aspect + resolution (INI-090) when --aspect is set; else legacy --profile.
+    # Target (INI-091): the project-level Target is the source of truth. When
+    # --project is given we read it from project.yml; explicit --aspect/--resolution
+    # still override (per-run nudge). Falls back to the legacy --profile dims when no
+    # aspect is in play at all.
     aspect = getattr(args, "aspect", None)
+    resolution = getattr(args, "resolution", "auto")
+    project_root = getattr(args, "project", None)
+    if project_root and aspect is None:
+        from .manifest import load_manifest
+
+        tgt = load_manifest(project_root).target
+        aspect = tgt.aspect
+        # --resolution defaults to "auto"; only let the project's tier through when
+        # the user didn't pass an explicit non-auto tier.
+        if resolution == "auto":
+            resolution = tgt.resolution
     out_w, out_h = _PROFILE_DIMS.get(args.profile, (1080, 1920))
 
     cmd = reframe(
         args.input, args.output,
         out_w=out_w, out_h=out_h, mode=args.mode,
         tracker_name=args.tracker, dry_run=args.dry_run,
-        aspect=aspect, resolution=getattr(args, "resolution", "auto"),
+        aspect=aspect, resolution=resolution,
         scale=scale, subject_y_frac=subject_y_frac,
         occupancy_out=getattr(args, "occupancy_out", None),
         caption_position=caption_position,
@@ -767,6 +790,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     g = sub.add_parser("safezone-gen", help="derive a safe-zone spec from a template PNG")
     g.add_argument("template")
+    g.add_argument("--project", default=None,
+                   help="project root (or project.yml): derive the spec profile from "
+                        "the project-level target (INI-091); --profile overrides")
     g.add_argument("--profile", default=None)
     g.add_argument("--key", default="auto", choices=["auto", "alpha", "color"])
     g.add_argument("-o", "--output", default=None)
@@ -790,6 +816,10 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--reframed-out", default=None,
                    help="also copy the reframed-uncut clip here (work/reframed.mp4) "
                         "as the stable editor-handoff source")
+    r.add_argument("--project", default=None,
+                   help="project root (or project.yml): reads the project-level "
+                        "target (aspect + resolution; INI-091) so the reframe and "
+                        "safezone share one target; explicit --aspect/--resolution win")
     r.add_argument("--profile", default="reels-9x16",
                    help="legacy fixed-dimension profile (used when --aspect is omitted)")
     from .target_format import ASPECT_PRESETS as _AP, TIERS as _TIERS
