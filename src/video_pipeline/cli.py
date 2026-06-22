@@ -97,15 +97,19 @@ def _resolve_project_paths(args: argparse.Namespace, keys, *, output_name: str) 
 # diverge — each command builds its overrides the same way, then both flow through
 # load_caption_style(..., overrides=...). The values are coerced/capped
 # authoritatively in CaptionStyle.__post_init__; these flags are just the surface.
+# value-style flags (None default = fall through to config); bg_enabled is a
+# separate switch handled below.
 _CAPTION_STYLE_FLAG_DESTS = (
     "font_family", "font_size", "fill_color", "stroke_color", "stroke_width",
+    "bg_color", "bg_radius", "h_offset",
 )
 
 
 def _add_caption_style_flags(parser: argparse.ArgumentParser) -> None:
-    """Add the five per-run caption-style override flags. Defaults are None so an
-    omitted flag falls through to the identity/global config (terminal users keep
-    the config defaults); the GUI passes explicit values from the schema."""
+    """Add the per-run caption-style override flags (font / size / colors / stroke
+    + the background-plate trio). Value flags default to None so an omitted flag
+    falls through to the identity/global config (terminal users keep the config
+    defaults); the GUI passes explicit values from the schema."""
     from .captions.style import FONT_ALLOWLIST
 
     parser.add_argument(
@@ -120,6 +124,17 @@ def _add_caption_style_flags(parser: argparse.ArgumentParser) -> None:
                         help="caption text border/stroke color (hex, e.g. #000000)")
     parser.add_argument("--stroke-width", type=int, default=None, metavar="PX",
                         help="caption text border/stroke thickness in px (0 = none)")
+    # background plate (INI-088 Phase 2)
+    parser.add_argument("--bg", dest="bg_enabled", action="store_true",
+                        help="draw a rounded background plate behind the caption block")
+    parser.add_argument("--bg-color", default=None, metavar="HEX",
+                        help="background plate color (hex; with --bg)")
+    parser.add_argument("--bg-radius", type=int, default=None, metavar="PX",
+                        help="background plate corner radius in px (with --bg; 0 = square)")
+    # horizontal placement (INI-088 Phase 3)
+    parser.add_argument("--h-offset", default=None, choices=["clear-notch", "center"],
+                        help="horizontal placement: clear-notch (widest notch-free span) "
+                             "or center (frame-centered, symmetric)")
 
 
 def _style_overrides_from_args(args: argparse.Namespace) -> dict:
@@ -130,6 +145,9 @@ def _style_overrides_from_args(args: argparse.Namespace) -> dict:
         val = getattr(args, dest, None)
         if val is not None:
             out[dest] = val
+    # bg_enabled is a presence switch (store_true): only override when set on.
+    if getattr(args, "bg_enabled", False):
+        out["bg_enabled"] = True
     return out
 
 

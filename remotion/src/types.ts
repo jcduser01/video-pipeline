@@ -1,5 +1,7 @@
 // Mirrors the props contract emitted by
-// video_pipeline.captions.export.track_to_remotion_props (schemaVersion 1).
+// video_pipeline.captions.export.track_to_remotion_props (schemaVersion 2).
+// v2 (INI-088 Phase 2) adds the background-plate trio (bg_enabled/bg_color/
+// bg_radius); they are optional so a v1 props file still type-checks.
 
 export type CaptionStyle = {
   font_family: string;
@@ -11,6 +13,13 @@ export type CaptionStyle = {
   emphasis_color: string;
   uppercase: boolean;
   position: "upper-third" | "center" | "lower-third";
+  // horizontal placement (v2; consumed Python-side to derive safeBox, not by the
+  // renderer — present for parity/debuggability)
+  h_offset?: "clear-notch" | "center";
+  // background plate (v2)
+  bg_enabled?: boolean;
+  bg_color?: string;
+  bg_radius?: number;
   max_words: number;
   min_words: number;
   max_chars: number;

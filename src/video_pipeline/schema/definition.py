@@ -121,6 +121,8 @@ def _caption_style_params() -> list[Param]:
     these are per-run flags with sensible defaults (identity-encoded defaults are
     deferred, INI-088 out of scope), so a GUI run emits them explicitly."""
     from ..captions.style import (
+        BG_RADIUS_MAX,
+        BG_RADIUS_MIN,
         FONT_ALLOWLIST,
         FONT_SIZE_MAX,
         FONT_SIZE_MIN,
@@ -157,6 +159,32 @@ def _caption_style_params() -> list[Param]:
               help="Outline thickness in px; 0 disables the stroke. Capped at the "
                    "Python boundary.",
               ui=UI(label="Stroke width (px)", control="slider", group="Style")),
+        # Background-plate trio (INI-088 Phase 2). bg_color/bg_radius depend on the
+        # bg_enabled toggle — the GUI hides them until the plate is switched on.
+        Param("bg_enabled", "bool", arity="switch", flag="--bg", default=False,
+              hint="Draw a background plate behind the captions.",
+              help="A whole-block rounded rectangle behind the caption text, padded "
+                   "to clear the stroke. Off by default.",
+              ui=UI(label="Background plate", control="toggle", group="Style")),
+        Param("bg_color", "string", flag="--bg-color", default="#000000",
+              hint="Background plate color (hex).",
+              help="Hex fill of the background plate, e.g. #000000.",
+              ui=UI(label="Plate color", control="field", group="Style",
+                    depends_on_key="bg_enabled", depends_on_equals=True)),
+        Param("bg_radius", "number", flag="--bg-radius",
+              min=BG_RADIUS_MIN, max=BG_RADIUS_MAX, step=1, default=0,
+              hint="Background plate corner radius (px).",
+              help="Rounded-corner radius of the plate in px; 0 = square corners.",
+              ui=UI(label="Plate corner radius (px)", control="slider", group="Style",
+                    depends_on_key="bg_enabled", depends_on_equals=True)),
+        # Horizontal placement (INI-088 Phase 3).
+        Param("h_offset", "enum", flag="--h-offset",
+              options=["clear-notch", "center"], default="clear-notch",
+              hint="Horizontal placement of the caption block.",
+              help="clear-notch fills the widest notch-free span (wider, may bias "
+                   "left of frame-center at lower-third); center keeps the block "
+                   "symmetric about frame-center while still clearing the notch.",
+              ui=UI(label="Horizontal placement", control="dropdown", group="Style")),
     ]
 
 

@@ -15,6 +15,7 @@ from pathlib import Path
 from tests._util import REPO_ROOT  # noqa: F401  (ensures src/ on path)
 
 from video_pipeline.captions import (
+    BG_RADIUS_MAX,
     FONT_ALLOWLIST,
     FONT_SIZE_MAX,
     FONT_SIZE_MIN,
@@ -92,6 +93,16 @@ class StyleLayeringTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             CaptionStyle(position="sideways")
 
+    def test_h_offset_default_and_validation(self):
+        self.assertEqual(CaptionStyle().h_offset, "clear-notch")
+        self.assertEqual(
+            load_caption_style(CONFIG_ROOT, "dyson-hope",
+                               overrides={"h_offset": "center"}).h_offset,
+            "center",
+        )
+        with self.assertRaises(ValueError):
+            CaptionStyle(h_offset="diagonal")
+
     def test_bad_word_bounds_rejected(self):
         with self.assertRaises(ValueError):
             CaptionStyle(min_words=5, max_words=2)
@@ -134,6 +145,34 @@ class StyleLayeringTests(unittest.TestCase):
             CaptionStyle(stroke_width=STROKE_WIDTH_MAX + 1)
         with self.assertRaises(ValueError):
             CaptionStyle(stroke_width=-1)
+
+    # ── INI-088 Phase 2: background plate ──
+    def test_bg_defaults_off(self):
+        s = CaptionStyle()
+        self.assertFalse(s.bg_enabled)
+        self.assertEqual(s.bg_color, "#000000")
+        self.assertEqual(s.bg_radius, 0)
+
+    def test_bg_to_dict_carries_plate(self):
+        d = CaptionStyle(bg_enabled=True, bg_color="#112233", bg_radius=24).to_dict()
+        self.assertEqual(
+            (d["bg_enabled"], d["bg_color"], d["bg_radius"]), (True, "#112233", 24)
+        )
+
+    def test_bg_overrides_apply_and_carry_to_props(self):
+        s = load_caption_style(
+            CONFIG_ROOT, identity="dyson-hope",
+            overrides={"bg_enabled": True, "bg_color": "#0A0A0A", "bg_radius": 30},
+        )
+        self.assertTrue(s.bg_enabled)
+        self.assertEqual(s.bg_radius, 30)
+
+    def test_bg_radius_caps_enforced(self):
+        CaptionStyle(bg_radius=0)
+        with self.assertRaises(ValueError):
+            CaptionStyle(bg_radius=-1)
+        with self.assertRaises(ValueError):
+            CaptionStyle(bg_radius=BG_RADIUS_MAX + 1)
 
 
 # ── glossary correction (timing layer, applied to words) ──────────────────────
@@ -417,6 +456,40 @@ class PlacementTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             caption_box(self.spec, position="nope")
 
+    # ── INI-088 Phase 3: explicit horizontal offset ──
+    def test_bad_h_offset_rejected(self):
+        with self.assertRaises(ValueError):
+            caption_box(self.spec, h_offset="nope")
+
+    def test_center_offset_is_frame_centered_and_clear(self):
+        # center mode: box centered about the safe-area center and still clear.
+        bx0, _, bx1, _ = self.spec.bounding_box
+        cx = (bx0 + bx1) / 2.0
+        box = caption_box(self.spec, position="lower-third", h_offset="center")
+        self.assertTrue(self.spec.rect_clear(box.x, box.y, box.x1, box.y1))
+        self.assertAlmostEqual(box.cx, cx, delta=2.0)  # symmetric about center
+
+    def test_center_offset_clears_synthetic_notch(self):
+        with tempfile.TemporaryDirectory() as d:
+            from tests._util import make_template_png
+            png = Path(d) / "t.png"
+            make_template_png(png, 1080, 1920, safe_rect=(40, 200, 1040, 1700),
+                              notch_rect=(820, 1300, 1040, 1700))
+            spec = generate_spec(str(png), profile="reels-9x16")
+            clear = caption_box(spec, position="lower-third", h_offset="clear-notch")
+            center = caption_box(spec, position="lower-third", h_offset="center")
+            # both clear the danger region
+            self.assertTrue(spec.rect_clear(center.x, center.y, center.x1, center.y1))
+            self.assertLessEqual(center.x1, 820)
+            # clear-notch is the wider (or equal) of the two at a notched band
+            self.assertGreaterEqual(clear.width, center.width)
+
+    def test_upper_third_offsets_identical_no_notch(self):
+        # the notch doesn't touch the upper band -> both modes agree there
+        a = caption_box(self.spec, position="upper-third", h_offset="clear-notch")
+        b = caption_box(self.spec, position="upper-third", h_offset="center")
+        self.assertEqual(a.to_dict(), b.to_dict())
+
 
 # ── Remotion props contract ───────────────────────────────────────────────────
 
@@ -438,7 +511,7 @@ class RemotionPropsTests(unittest.TestCase):
     def test_props_only_kept_cues_with_frames(self):
         style = CaptionStyle(uppercase=False)
         props = build_props_from_safezone(self._track(), style, self.spec, fps=30)
-        self.assertEqual(props["schemaVersion"], 1)
+        self.assertEqual(props["schemaVersion"], 2)
         self.assertEqual(len(props["cues"]), 1)  # dropped cue excluded
         c = props["cues"][0]
         self.assertEqual(c["from"], 0)

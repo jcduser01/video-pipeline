@@ -7,7 +7,7 @@ import type { CaptionProps } from "./types";
 // driven by the props JSON from video_pipeline.captions.export; calculateMetadata
 // re-reads dimensions/fps/total-duration from whatever props are supplied.
 const defaultProps: CaptionProps = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   source: "preview",
   identity: "dyson-hope",
   profile: "reels-9x16",
@@ -25,6 +25,10 @@ const defaultProps: CaptionProps = {
     emphasis_color: "#9C97F4",
     uppercase: true,
     position: "lower-third",
+    h_offset: "clear-notch",
+    bg_enabled: false,
+    bg_color: "#000000",
+    bg_radius: 0,
     max_words: 4,
     min_words: 2,
     max_chars: 24,

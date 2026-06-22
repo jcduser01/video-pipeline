@@ -100,7 +100,13 @@ video-pipeline captions-render review/captions.yml -o out/captions.mov \
     --font-family Helvetica --font-size 96 \
     --fill-color "#FFFFFF" --stroke-color "#000000" --stroke-width 8
 
-# 6b. Render then grab N representative still frames (composited over a neutral
+# 6b. Background plate behind the captions (whole-block rounded rectangle, padded
+#     to clear the stroke). --bg turns it on; --bg-color / --bg-radius shape it.
+video-pipeline captions-render review/captions.yml -o out/captions.mov \
+    --identity <identity> --safezone config/safezone/reels-9x16.safezone.json \
+    --bg --bg-color "#000000" --bg-radius 24
+
+# 6c. Render then grab N representative still frames (composited over a neutral
 #     plate) for visual verification — written to <output>-frames/ by default.
 video-pipeline captions-render review/captions.yml -o out/captions.mov \
     --identity <identity> --safezone config/safezone/reels-9x16.safezone.json \

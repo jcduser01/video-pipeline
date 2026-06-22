@@ -38,6 +38,8 @@ from .preview import (
 )
 from .remotion import remotion_render_command, render_overlay
 from .style import (
+    BG_RADIUS_MAX,
+    BG_RADIUS_MIN,
     FONT_ALLOWLIST,
     FONT_SIZE_MAX,
     FONT_SIZE_MIN,
@@ -57,6 +59,8 @@ __all__ = [
     "FONT_SIZE_MAX",
     "STROKE_WIDTH_MIN",
     "STROKE_WIDTH_MAX",
+    "BG_RADIUS_MIN",
+    "BG_RADIUS_MAX",
     "chunk_transcript",
     "apply_glossary_to_words",
     "CaptionBox",
