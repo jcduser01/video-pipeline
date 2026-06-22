@@ -176,7 +176,7 @@ simple fade only.
 ## Control-tower schema (GUI)
 
 The pipeline is the single source of truth for an optional desktop control-tower
-GUI — [`video-pipeline-gui`](../video-pipeline-gui), a Tauri app that runs these
+GUI — [`video-pipeline-gui`](https://github.com/jasoncookdesign/video-pipeline-gui), a Tauri app that runs these
 steps, streams their output, and previews the layers each produces. The pipeline
 emits the steps, tasks, artifacts, parameters, and export targets the GUI reads at
 launch to build its forms and previewer; adding a step on this side surfaces in the
