@@ -23,7 +23,7 @@ import json
 from typing import Optional
 
 from .cue import CaptionTrack
-from .placement import CaptionBox, caption_box
+from .placement import CaptionBox, caption_box, caption_box_avoiding
 from .style import CaptionStyle
 
 
@@ -94,38 +94,45 @@ def track_to_remotion_props(
     height: int,
     fps: int = 30,
     karaoke: bool = False,
+    cue_boxes: Optional[dict] = None,
 ) -> dict:
     """Build the Remotion props object for the styled caption overlay.
 
     Times are converted to frames at ``fps``; ``durationInFrames`` per cue is at
     least 1 so a very short cue still renders. ``box`` (from
-    :func:`~video_pipeline.captions.placement.caption_box`) constrains layout to
-    the safe zone. ``karaoke`` adds the top-level flag; ``wordTimings`` (per-word
+    :func:`~video_pipeline.captions.placement.caption_box`) is the track-level
+    default placement. ``cue_boxes`` (optional, keyed by cue index) overrides the
+    box for individual cues that must dodge an overlay (INI-089 caption-dodge); a
+    cue with an entry emits its own ``box`` and the renderer prefers it over
+    ``safeBox``. ``karaoke`` adds the top-level flag; ``wordTimings`` (per-word
     frame windows relative to each cue) is always emitted so the renderer can
     highlight the active word when karaoke is on.
     """
+    cue_boxes = cue_boxes or {}
     out_cues = []
     for cue in track.kept():
         f_in = seconds_to_frame(cue.start, fps)
         f_out = seconds_to_frame(cue.end, fps)
-        out_cues.append(
-            {
-                "index": cue.index,
-                "text": cue.text.upper() if style.uppercase else cue.text,
-                "words": [w.upper() for w in cue.words] if style.uppercase else list(cue.words),
-                "emphasis": list(cue.emphasis),
-                "from": f_in,
-                "durationInFrames": max(1, f_out - f_in),
-                "startSeconds": cue.start,
-                "endSeconds": cue.end,
-                "wordTimings": _word_timings_frames(cue, fps),
-            }
-        )
+        out_cue = {
+            "index": cue.index,
+            "text": cue.text.upper() if style.uppercase else cue.text,
+            "words": [w.upper() for w in cue.words] if style.uppercase else list(cue.words),
+            "emphasis": list(cue.emphasis),
+            "from": f_in,
+            "durationInFrames": max(1, f_out - f_in),
+            "startSeconds": cue.start,
+            "endSeconds": cue.end,
+            "wordTimings": _word_timings_frames(cue, fps),
+        }
+        if cue.index in cue_boxes:
+            out_cue["box"] = cue_boxes[cue.index].to_dict()
+        out_cues.append(out_cue)
 
     return {
-        # v2 (INI-088 Phase 2): style adds the background-plate trio
-        # (bg_enabled / bg_color / bg_radius). v1 consumers ignore the new keys.
-        "schemaVersion": 2,
+        # v3 (INI-089 caption-dodge): cues may carry an optional per-cue `box` that
+        # overrides safeBox to clear an overlay. v2 (INI-088 Phase 2): style adds
+        # the background-plate trio. Older consumers ignore the new keys.
+        "schemaVersion": 3,
         "source": track.source,
         "identity": track.identity,
         "profile": track.profile,
@@ -154,6 +161,7 @@ def build_props_from_safezone(
     position: Optional[str] = None,
     karaoke: Optional[bool] = None,
     h_offset: Optional[str] = None,
+    avoid_windows=None,
 ) -> dict:
     """Convenience: derive the caption box from a safe-zone spec, then build props.
 
@@ -161,16 +169,37 @@ def build_props_from_safezone(
     native frame). ``position`` defaults to the style's anchor; ``h_offset``
     defaults to the style's horizontal placement; ``karaoke`` defaults to
     ``style.karaoke``.
+
+    ``avoid_windows`` (INI-089 caption-dodge) is an optional list of
+    ``(x, y, w, h, start, end)`` overlay footprints (from
+    ``overlay.occupancy.avoid_windows``). When given, each cue whose time window
+    overlaps an overlay gets a relocated ``box`` that clears it; cues with no
+    overlapping overlay keep the track default. Cheap and per-cue, so captions
+    only move where an overlay actually sits.
     """
-    box = caption_box(
-        safezone_spec,
-        position=position or style.position,
-        h_offset=h_offset or style.h_offset,
-    )
+    pos = position or style.position
+    h_off = h_offset or style.h_offset
+    box = caption_box(safezone_spec, position=pos, h_offset=h_off)
+
+    cue_boxes = None
+    if avoid_windows:
+        cue_boxes = {}
+        for cue in track.kept():
+            rects = [
+                (x, y, w, h)
+                for (x, y, w, h, s, e) in avoid_windows
+                if min(e, cue.end) - max(s, cue.start) > 0
+            ]
+            if rects:
+                cue_boxes[cue.index] = caption_box_avoiding(
+                    safezone_spec, rects, position=pos, h_offset=h_off
+                )
+
     return track_to_remotion_props(
         track, style, box,
         width=safezone_spec.image_width,
         height=safezone_spec.image_height,
         fps=fps,
         karaoke=style.karaoke if karaoke is None else karaoke,
+        cue_boxes=cue_boxes,
     )

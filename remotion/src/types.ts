@@ -40,6 +40,9 @@ export type CaptionCue = {
   endSeconds: number;
   // per-word frame windows RELATIVE to the cue start (for the karaoke highlight)
   wordTimings?: WordTiming[];
+  // v3 (INI-089 caption-dodge): a per-cue box that overrides safeBox so this cue
+  // clears an overlay on screen during its window. Absent → use safeBox.
+  box?: SafeBox;
 };
 
 export type SafeBox = { x: number; y: number; width: number; height: number };

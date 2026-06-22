@@ -152,7 +152,12 @@ export const Captions: React.FC<CaptionProps> = (props) => {
           from={cue.from}
           durationInFrames={cue.durationInFrames}
         >
-          <CueBlock cue={cue} style={style} box={safeBox} karaoke={!!karaoke} />
+          <CueBlock
+            cue={cue}
+            style={style}
+            box={cue.box ?? safeBox}
+            karaoke={!!karaoke}
+          />
         </Sequence>
       ))}
     </AbsoluteFill>

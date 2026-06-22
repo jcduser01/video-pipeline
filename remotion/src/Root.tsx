@@ -8,7 +8,7 @@ import type { CaptionProps, CardProps } from "./types";
 // driven by the props JSON from video_pipeline.captions.export; calculateMetadata
 // re-reads dimensions/fps/total-duration from whatever props are supplied.
 const defaultProps: CaptionProps = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   source: "preview",
   identity: "dyson-hope",
   profile: "reels-9x16",

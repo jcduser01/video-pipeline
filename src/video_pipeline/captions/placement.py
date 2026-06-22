@@ -140,3 +140,51 @@ def caption_box(
 
     box = CaptionBox(x=x, y=y, width=x1 - x, height=y1 - y)
     return box
+
+
+# ── overlay-aware placement (INI-089 caption-dodge) ────────────────────────────
+#
+# An overlay sitting on the frame is a region captions should avoid for the span
+# it is on screen. The overlay step emits ``overlay.occupancy`` (geometric rects +
+# windows); the caption layer consumes it here. Per cue, the caller passes the
+# overlay rects active during that cue's window and gets a box clear of them.
+
+# Where to look for a clear band when the requested anchor is blocked, in order of
+# preference (keep the caption as close to its intended position as possible).
+_DODGE_PREFERENCE = {
+    "lower-third": ("lower-third", "upper-third", "center"),
+    "upper-third": ("upper-third", "lower-third", "center"),
+    "center": ("center", "upper-third", "lower-third"),
+}
+
+
+def _box_hits_rect(box: CaptionBox, x: int, y: int, w: int, h: int) -> bool:
+    """True if ``box`` overlaps the rect ``(x, y, w, h)`` (positive area)."""
+    return box.x < x + w and x < box.x1 and box.y < y + h and y < box.y1
+
+
+def caption_box_avoiding(
+    spec: SafeZoneSpec,
+    avoid_rects,
+    position: str = "lower-third",
+    margin_frac: float = 0.04,
+    h_offset: str = "clear-notch",
+) -> CaptionBox:
+    """A caption box at (or near) ``position`` that clears the overlay rects.
+
+    Tries the requested anchor first; if the box there overlaps any rect in
+    ``avoid_rects`` (each ``(x, y, w, h)`` in profile pixel space — e.g. an
+    ``overlay.occupancy`` rect active during the cue), it relocates to the next
+    preferred anchor (lower → upper → center, etc.) until it finds a clear band.
+
+    Captions over an overlay are an advisory QC concern, not a hard failure
+    (consistent with the safe-zone QC philosophy), so if **every** anchor is
+    blocked — e.g. a full-bleed overlay covers the frame — it returns the box at
+    the requested position as a best effort (QC will flag the overlap).
+    """
+    rects = [tuple(int(v) for v in r[:4]) for r in avoid_rects]
+    for pos in _DODGE_PREFERENCE.get(position, (position,)):
+        box = caption_box(spec, position=pos, margin_frac=margin_frac, h_offset=h_offset)
+        if not any(_box_hits_rect(box, *r) for r in rects):
+            return box
+    return caption_box(spec, position=position, margin_frac=margin_frac, h_offset=h_offset)

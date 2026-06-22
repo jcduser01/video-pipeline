@@ -104,10 +104,14 @@ base audio through. Per-overlay audio duck/mute is layered by the runner.
 3. **Audio policy** — `duck`/`mute` for video overlays (amix/sidechain or volume on
    the overlay's audio; `keep` passes base audio through as today). The runner
    currently drops a video overlay's own audio (safe `mute` default).
-4. **Caption-dodge** — caption placement consumes `overlay.occupancy`: when a cue's
-   window intersects an active overlay rect, the caption box avoids it (extends
-   `captions/placement.py` to take occupancy rects; coordinate with INI-088 control
-   9, the one safe-zone module both touch).
+4. ~~Caption-dodge~~ — **BUILT.** `captions/placement.py:caption_box_avoiding`
+   relocates a caption to the nearest clear anchor (lower→upper→center) when its box
+   hits an overlay; `overlay/occupancy.py:rects_active_in_window` / `avoid_windows`
+   feed it. `captions/export.build_props_from_safezone(avoid_windows=…)` emits a
+   **per-cue** `box` only for cues whose window overlaps an overlay (props
+   schemaVersion 3; `Captions.tsx` uses `cue.box ?? safeBox`). Full-bleed overlay =
+   best-effort (advisory QC warns). Per-cue, so captions move only where an overlay
+   actually sits. Render acceptance Mac-side.
 5. **QC consumption** — `qc` reads `overlay.occupancy` and flags overlays intruding
    on the danger polygon (`SafeZoneSpec.rect_clear`).
 6. **Cut-time remap at handoff** — overlay cues run through `fcpxml/timeline.py`

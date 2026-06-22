@@ -129,6 +129,33 @@ def active_at(items: List[OccupancyItem], t: float) -> List[OccupancyItem]:
     return [it for it in items if it.covers(t)]
 
 
+def rects_active_in_window(
+    items: List[OccupancyItem], start: float, end: float
+) -> List[Tuple[int, int, int, int]]:
+    """The ``(x, y, w, h)`` rects whose window overlaps ``[start, end)``.
+
+    What a caption cue spanning ``[start, end)`` must dodge: every overlay on screen
+    during any part of the cue. Used to feed
+    :func:`~video_pipeline.captions.placement.caption_box_avoiding`.
+    """
+    out: List[Tuple[int, int, int, int]] = []
+    for it in items:
+        if min(it.end, end) - max(it.start, start) > 0:
+            out.append((it.x, it.y, it.width, it.height))
+    return out
+
+
+def avoid_windows(
+    items: List[OccupancyItem],
+) -> List[Tuple[int, int, int, int, float, float]]:
+    """Flatten footprints to ``(x, y, w, h, start, end)`` tuples.
+
+    Plain data the caption export consumes without importing the overlay package —
+    keeps the consumer (captions) decoupled from the producer's types.
+    """
+    return [(it.x, it.y, it.width, it.height, it.start, it.end) for it in items]
+
+
 def occupancy_to_dict(
     items: List[OccupancyItem],
     *,

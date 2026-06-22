@@ -511,7 +511,7 @@ class RemotionPropsTests(unittest.TestCase):
     def test_props_only_kept_cues_with_frames(self):
         style = CaptionStyle(uppercase=False)
         props = build_props_from_safezone(self._track(), style, self.spec, fps=30)
-        self.assertEqual(props["schemaVersion"], 2)
+        self.assertEqual(props["schemaVersion"], 3)  # INI-089 caption-dodge (per-cue box)
         self.assertEqual(len(props["cues"]), 1)  # dropped cue excluded
         c = props["cues"][0]
         self.assertEqual(c["from"], 0)
