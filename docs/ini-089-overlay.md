@@ -120,9 +120,14 @@ base audio through. Per-overlay audio duck/mute is layered by the runner.
    covers the danger zone by design). `QCReport` gains `overlays_checked`; the runner
    loads `occupancy_path` and `caption_elements_from_props` now honours each cue's
    dodged `box`. Render acceptance Mac-side.
-6. **Cut-time remap at handoff** — overlay cues run through `fcpxml/timeline.py`
-   like caption cues; the editor handoff opens with each overlay on its own labeled
-   track at the correct cut-time offset.
+6. ~~Cut-time remap at handoff~~ — **BUILT** (data path). `fcpxml/timeline.py`
+   `remap_overlay` / `remap_overlays` ride the same `kept_spans` mapping as caption
+   cues: overlays in dropped regions drop, straddlers clip, fades shrink (frame-
+   aligned) to fit, whole-clip KEEP is identity. `assemble_project(overlays_def_path=…)`
+   writes the cut-time overlay file (`<project>.overlays.cut.yml`), the analogue of
+   the cut-time caption file. **Remaining:** the FCPXML/XMEML per-overlay *track*
+   clip (each overlay on its own labeled lane) — needs per-overlay rendered assets
+   (the runner's per-layer render), so it follows the schema/CLI work.
 7. **Schema + CLI** — add the `overlay` step + `overlay.define` / `overlay.render`
    tasks + `overlay.def` / `overlay.occupancy` artifacts to `schema/definition.py`,
    and the matching `overlay` / `overlay-render` CLI subcommands. The SADD already

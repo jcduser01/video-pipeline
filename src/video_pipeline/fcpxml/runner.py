@@ -25,8 +25,10 @@ from pathlib import Path
 from typing import Optional
 
 from ..captions.cue import CaptionTrack
+from ..overlay.decision import OverlayList
 from ..roughcut.decision import DecisionList
 from .document import assemble_fcpxml
+from .timeline import remap_overlays
 from .xmeml import assemble_xmeml
 
 # Handoff formats. ``premiere`` (FCP7 XML / XMEML) is the default — Premiere Pro
@@ -42,8 +44,10 @@ def assemble_project(
     reframed_clip: str,
     caption_path: Optional[str] = None,
     overlay_path: Optional[str] = None,
+    overlays_def_path: Optional[str] = None,
     composite_path: Optional[str] = None,
     cut_caption_path: Optional[str] = None,
+    cut_overlays_path: Optional[str] = None,
     fmt: str = "premiere",
     width: int = 1080,
     height: int = 1920,
@@ -102,6 +106,7 @@ def assemble_project(
         "kept_duration": decision.kept_duration(),
         "overlay": resolved_overlay if cut_track and cut_track.kept() else None,
         "cut_captions": None,
+        "cut_overlays": None,
     }
 
     # Write the cut-time caption file so the overlay can be rendered aligned.
@@ -113,5 +118,20 @@ def assemble_project(
         cut_path.parent.mkdir(parents=True, exist_ok=True)
         cut_track.write(cut_path)
         result["cut_captions"] = str(cut_path)
+
+    # Write the cut-time overlay file (INI-089). Overlays are authored in source
+    # time; remapped onto the cut they composite/place at the right offsets. The
+    # editor renders/places overlays from this cut-aligned decision file — the
+    # analogue of the cut-time caption file above.
+    if overlays_def_path:
+        cut_overlays = remap_overlays(OverlayList.read(overlays_def_path), decision, fps)
+        if cut_overlays.segments:
+            cov_path = Path(
+                cut_overlays_path
+                or str(out.with_suffix("").with_suffix(".overlays.cut.yml"))
+            )
+            cov_path.parent.mkdir(parents=True, exist_ok=True)
+            cut_overlays.write(cov_path)
+            result["cut_overlays"] = str(cov_path)
 
     return result

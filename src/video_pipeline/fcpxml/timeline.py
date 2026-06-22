@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from ..captions.cue import CaptionTrack, Cue
+from ..overlay.decision import OverlayItem, OverlayList
 from ..roughcut.decision import DecisionList, Segment
 
 
@@ -221,5 +222,83 @@ def remap_track(
         style_ref=track.style_ref,
         language=track.language,
         karaoke=track.karaoke,
+    )
+    return new.reindex()
+
+
+# ── overlay remap (INI-089) ────────────────────────────────────────────────────
+#
+# Overlays are authored in source time (the overlay.def window is the span where
+# the thing is discussed). On the compressed cut they must move with the base cut
+# exactly like caption cues — same `kept_spans` mapping — so the editor handoff
+# opens with each overlay on its track at the right cut-time offset.
+
+def remap_overlay(
+    spans: List[KeptSpan], item: OverlayItem, fps: int = 30
+) -> Optional[OverlayItem]:
+    """Rebuild one overlay in cut time, or ``None`` if it falls in a dropped region.
+
+    The window is clipped to the kept content it overlaps; a fade is shrunk (frame-
+    aligned) so it never exceeds half the clipped window — and degrades to a hard
+    cut if nothing is left for it. An overlay with no kept overlap, or one that
+    collapses below a frame after clipping, returns ``None``.
+    """
+    if not _overlaps_kept(spans, item.start, item.end):
+        return None
+    cut_start = quantize(source_to_cut(spans, item.start), fps)
+    cut_end = quantize(source_to_cut(spans, item.end), fps)
+    new_dur = cut_end - cut_start
+    if new_dur < 1.0 / fps:  # collapsed below one frame after clipping
+        return None
+
+    transition = item.transition
+    fade = item.fade
+    if transition == "fade":
+        # Largest frame-aligned fade that fits in half the clipped window.
+        frames = round(new_dur * fps)
+        max_fade = (frames // 2) / fps
+        fade = min(item.fade, max_fade)
+        if fade <= 0:
+            transition, fade = "cut", 0.0
+
+    return OverlayItem(
+        index=item.index,
+        kind=item.kind,
+        src=item.src,
+        start=cut_start,
+        end=cut_end,
+        placement=item.placement,
+        rect=item.rect,
+        transition=transition,
+        fade=fade,
+        audio=item.audio,
+        scale=item.scale,
+        matte=item.matte,
+        text=item.text,
+    )
+
+
+def remap_overlays(
+    overlays: OverlayList, decision: DecisionList, fps: int = 30
+) -> OverlayList:
+    """Rebuild an overlay list in cut time against a decision file.
+
+    Each overlay is remapped via :func:`remap_overlay`; overlays entirely in dropped
+    regions are omitted and survivors reindexed in window order. When
+    ``trim_filler: false`` (a single whole-clip KEEP) the mapping is the identity and
+    the windows pass through unchanged. The result composites/places onto the base
+    cut at the right offsets.
+    """
+    spans = kept_spans(decision, fps)
+    out: List[OverlayItem] = []
+    for item in overlays.segments:
+        remapped = remap_overlay(spans, item, fps)
+        if remapped is not None:
+            out.append(remapped)
+    new = OverlayList(
+        source=overlays.source,
+        segments=out,
+        profile=overlays.profile,
+        duration=cut_duration(spans),
     )
     return new.reindex()
