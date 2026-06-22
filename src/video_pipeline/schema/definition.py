@@ -210,8 +210,9 @@ def build_schema() -> Schema:
              help="Turns a design template (with the danger region marked) into the "
                   "machine-readable safe-zone polygon that caption placement and QC use."),
         Step("reframe", "Reframe", order=30,
-             hint="Landscape -> portrait reframe.",
-             help="Tracks the subject and crops the source to the target portrait frame. "
+             hint="Reframe the source to the target format.",
+             help="Tracks the subject and crops the source to the target format — "
+                  "portrait, square, or landscape. "
                   "Skippable when the source is already in-aspect."),
         Step("roughcut", "Rough Cut", order=40,
              hint="Propose cuts -> editable decision file.",
@@ -345,7 +346,7 @@ def build_schema() -> Schema:
 
     # reframe: base -> base.
     tasks.append(Task(
-        id="reframe", step="reframe", label="Reframe to portrait",
+        id="reframe", step="reframe", label="Reframe to target format",
         subcommand="reframe", optional=True,
         consumes=["base"], produces=["base", "reframed"],
         io=[
@@ -354,7 +355,7 @@ def build_schema() -> Schema:
             IOBinding(artifact="reframed", role="output", via="flag",
                       flag="--reframed-out"),
         ],
-        hint="Crop landscape source to the portrait frame.",
+        hint="Crop the source to the target format (portrait, square, or landscape).",
         help="Subject-tracking crop. Static holds one crop; dynamic follows the subject. "
              "Daily-driver path needs MediaPipe; --dry-run plans without rendering.",
         params=[
