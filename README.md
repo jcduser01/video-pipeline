@@ -298,6 +298,7 @@ src/video_pipeline/
   manifest.py  project.py         project.yml load/validate + scaffolding
   glossary.py  cli.py
 tests/                            unittest/pytest suite (runs without native deps)
+DOCS.md                           documentation index (which doc covers what)
 docs/phase1.md … phase5.md        what each phase delivers + acceptance steps
 docs/reframe.md                   multi-target + interactive reframe (INI-090/091)
 docs/ini-089-overlay.md           overlay subsystem; docs/gui-schema.md  GUI schema contract
