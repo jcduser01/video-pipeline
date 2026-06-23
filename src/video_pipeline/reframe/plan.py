@@ -11,8 +11,25 @@ Two modes:
   - ``dynamic`` — a smooth pan that follows the subject. Built only from frames
     where the subject was actually detected (gaps are interpolated across, not
     snapped to a centred guess), zero-phase smoothed, velocity-capped, then
-    reduced to a few linear keyframes. The crop x interpolates linearly between
-    keyframes — continuous motion, no steps.
+    reduced to a few linear keyframes. The crop x (and, under a composition lock,
+    the crop y) interpolate linearly between keyframes — continuous motion, no
+    steps.
+
+Composition lock (INI-091 Phase 5)
+----------------------------------
+Dynamic mode gains a ``lock`` axis (``"none"`` | ``"x"`` | ``"y"`` | ``"both"``):
+
+  - ``"none"`` (default) — the legacy behaviour, unchanged: the dynamic follow
+    smooths the X crop-centre onto the subject; Y is the fixed ``_crop_y`` anchor.
+    An explicit ``pan_x`` still pins the whole clip to a single static window.
+  - ``"x"`` / ``"y"`` / ``"both"`` — *Composition Lock*. The box set in Phase 4
+    (carried as the framing model's ``pan_x``/``pan_y``) establishes the subject's
+    **relative placement** in the crop. The engine then moves the crop on each
+    *locked* axis to HOLD that relative placement as the subject moves (the same
+    dense-grid → zero-phase smooth → velocity-cap → Douglas-Peucker pipeline, now
+    per locked axis). An *unlocked* axis stays fixed at the box's pan value on that
+    axis. Locking neither (``"none"`` with explicit pan, or unlocking both) is
+    Static. The crop is always clamped inside the source frame.
 """
 
 from __future__ import annotations
@@ -79,6 +96,16 @@ def window_x(cx: float, crop_w: int, src_w: int) -> int:
     """Integer left edge for a clamped centre."""
     x = int(round(clamp_center(cx, crop_w, src_w) - crop_w / 2))
     return min(max(x, 0), src_w - crop_w)
+
+
+def window_y(cy: float, crop_h: int, src_h: int) -> int:
+    """Integer top edge for a clamped vertical centre (mirrors :func:`window_x`).
+
+    Used by the dynamic composition lock when the Y axis follows the subject; the
+    clamp math is axis-agnostic (:func:`clamp_center` is reused on the height axis).
+    """
+    y = int(round(clamp_center(cy, crop_h, src_h) - crop_h / 2))
+    return min(max(y, 0), src_h - crop_h)
 
 
 def ema_smooth(values: List[float], alpha: float) -> List[float]:
@@ -164,6 +191,28 @@ def sample_x(plan: CropPlan, t: float) -> float:
     return float(xs[-1])
 
 
+def sample_y(plan: CropPlan, t: float) -> float:
+    """Crop top edge at time t (mirrors :func:`sample_x` on the vertical axis).
+
+    Under a Y-axis composition lock the crop top moves per keyframe; otherwise
+    every window shares one ``y`` and this is constant. Linear between keyframes,
+    matching the renderer's piecewise-linear y(t)."""
+    ws = plan.windows
+    if len(ws) == 1:
+        return float(ws[0].y)
+    ts = [w.t_start for w in ws]
+    ys = [w.y for w in ws]
+    if t <= ts[0]:
+        return float(ys[0])
+    if t >= ts[-1]:
+        return float(ys[-1])
+    for i in range(len(ts) - 1):
+        if ts[i] <= t <= ts[i + 1]:
+            f = (t - ts[i]) / (ts[i + 1] - ts[i]) if ts[i + 1] > ts[i] else 0.0
+            return ys[i] + (ys[i + 1] - ys[i]) * f
+    return float(ys[-1])
+
+
 def _robust_center(subjects: List[FrameSubject], src_w: int) -> float:
     if not subjects:
         return src_w / 2
@@ -201,6 +250,32 @@ def _crop_y(
 
 # ── plan builders ─────────────────────────────────────────────────────────────
 
+def _smooth_centre_track(
+    ts: List[float],
+    centres: List[float],
+    grid: List[float],
+    dt: float,
+    smoothing_seconds: float,
+    max_step: float,
+) -> List[float]:
+    """The dynamic stabilisation pass for one axis: interpolate across gaps onto a
+    dense grid, zero-phase smooth, then velocity-cap (forward+backward).
+
+    Factored out of :func:`build_crop_plan` so the X follow and the Phase-5 Y follow
+    run identical maths — the legacy X path is byte-for-byte this sequence.
+    """
+    dense = _interp(grid, ts, centres)
+    alpha = 1.0 - math.exp(-dt / max(smoothing_seconds, 1e-6))
+    dense = _ema_zero_phase(dense, alpha)
+    for i in range(1, len(dense)):
+        lo, hi = dense[i - 1] - max_step, dense[i - 1] + max_step
+        dense[i] = min(max(dense[i], lo), hi)
+    for i in range(len(dense) - 2, -1, -1):  # backward pass keeps it symmetric
+        lo, hi = dense[i + 1] - max_step, dense[i + 1] + max_step
+        dense[i] = min(max(dense[i], lo), hi)
+    return dense
+
+
 def _static_plan(subjects, src_w, src_h, out_w, out_h, crop_w, crop_h, y, duration,
                  pan_x=None) -> CropPlan:
     # pan_x (INI-091 manual pan) is the crop centre as a normalized source fraction;
@@ -213,6 +288,109 @@ def _static_plan(subjects, src_w, src_h, out_w, out_h, crop_w, crop_h, y, durati
         src_w, src_h, out_w, out_h, "static",
         [CropWindow(t_start, max(t_end, t_start), x, y, crop_w, crop_h)],
     )
+
+
+def _box_centre(pan: Optional[float], src: int, crop: int, subjects, axis: str) -> float:
+    """The set box's crop centre on one axis, clamped inside the source frame.
+
+    ``pan`` (the box's normalized pan on this axis) wins when given; otherwise the
+    subject-derived robust centre seeds the box (so a lock with no explicit box still
+    holds the subject's natural placement). ``None`` pan with no subject -> frame mid.
+    """
+    if pan is not None:
+        centre = pan * src
+    else:
+        conf = [(s.cx if axis == "x" else s.cy) for s in subjects if s.confidence > 0]
+        centre = float(median(conf)) if conf else src / 2.0
+    return clamp_center(centre, crop, src)
+
+
+def _subject_ref(subjects, axis: str, src: int) -> float:
+    """Median confident subject centre on one axis (the box-set-time reference)."""
+    conf = [(s.cx if axis == "x" else s.cy) for s in subjects if s.confidence > 0]
+    return float(median(conf)) if conf else src / 2.0
+
+
+def _lock_plan(
+    subjects, confident, src_w, src_h, out_w, out_h, crop_w, crop_h,
+    y_fixed, duration, lock, pan_x, pan_y,
+    grid_fps, smoothing_seconds, max_pan_frac_per_s, simplify_tol_px,
+) -> CropPlan:
+    """Composition-Lock dynamic plan (INI-091 Phase 5).
+
+    The set box (``pan_x``/``pan_y``) fixes the subject's *relative placement* in the
+    crop. A locked axis moves the crop each frame so the (smoothed, velocity-capped,
+    clamped) subject keeps that relative placement; an unlocked axis stays parked at the
+    box's pan on that axis. Both axes reuse the identical stabilisation pipeline.
+
+    Relative anchor: ``anchor = subject_ref - box_centre`` captured at box-set time, so
+    the locked crop centre is ``box_centre + (subject(t) - subject_ref)`` — i.e. the
+    subject's offset from the crop centre is held constant.
+    """
+    lock_x = lock in ("x", "both")
+    lock_y = lock in ("y", "both")
+
+    box_cx = _box_centre(pan_x, src_w, crop_w, subjects, "x")
+    box_cy = _box_centre(pan_y, src_h, crop_h, subjects, "y")
+
+    # An unlocked axis is fixed at the box; the corresponding top-left edge:
+    x_fixed = window_x(box_cx, crop_w, src_w)
+    y_box_fixed = window_y(box_cy, crop_h, src_h)
+    # Y unlocked keeps the existing _crop_y anchor when no explicit pan_y was given, so
+    # lock="x" matches the legacy fixed-Y dynamic; an explicit pan_y parks Y at the box.
+    y_unlocked = y_box_fixed if pan_y is not None else y_fixed
+
+    t0 = confident[0].t
+    t_end = duration if duration is not None else (subjects[-1].t if subjects else t0)
+    if t_end <= t0 or len(confident) < 2:
+        # No motion to follow -> the box itself, as a single static window.
+        x = x_fixed if lock_x else x_fixed
+        y = y_box_fixed if lock_y else y_unlocked
+        return CropPlan(src_w, src_h, out_w, out_h, "dynamic",
+                        [CropWindow(t0, max(t_end, t0), x, y, crop_w, crop_h)])
+
+    n_steps = max(2, int(math.ceil((t_end - t0) * grid_fps)) + 1)
+    grid = [t0 + i * (t_end - t0) / (n_steps - 1) for i in range(n_steps)]
+    dt = (t_end - t0) / (n_steps - 1)
+    conf_t = [s.t for s in confident]
+
+    def _follow(axis, box_centre, crop, src):
+        """Locked-axis dense crop-centre track: box_centre + (subject - subject_ref)."""
+        ref = _subject_ref(confident, axis, src)
+        raw = [box_centre + ((s.cx if axis == "x" else s.cy) - ref) for s in confident]
+        raw = [clamp_center(c, crop, src) for c in raw]
+        max_step = max_pan_frac_per_s * src * dt
+        return _smooth_centre_track(conf_t, raw, grid, dt, smoothing_seconds, max_step)
+
+    dense_x = _follow("x", box_cx, crop_w, src_w) if lock_x else None
+    dense_y = _follow("y", box_cy, crop_h, src_h) if lock_y else None
+
+    # Simplify on whichever axes move; merge the kept indices so a keyframe captures
+    # both axes' motion (a join either axis needs becomes a shared keyframe).
+    keep_idx = {0, n_steps - 1}
+    if dense_x is not None:
+        keep_idx.update(_douglas_peucker(grid, dense_x, simplify_tol_px))
+    if dense_y is not None:
+        keep_idx.update(_douglas_peucker(grid, dense_y, simplify_tol_px))
+    keep = sorted(keep_idx)
+
+    windows: List[CropWindow] = []
+    for k, gi in enumerate(keep):
+        t_start = grid[gi]
+        t_next = grid[keep[k + 1]] if k + 1 < len(keep) else t_end
+        x = window_x(dense_x[gi], crop_w, src_w) if lock_x else x_fixed
+        y = window_y(dense_y[gi], crop_h, src_h) if lock_y else y_unlocked
+        windows.append(CropWindow(t_start, max(t_next, t_start), x, y, crop_w, crop_h))
+
+    # collapse neighbours identical on BOTH axes (a constant stretch needs no keyframe).
+    collapsed: List[CropWindow] = []
+    for w in windows:
+        if collapsed and collapsed[-1].x == w.x and collapsed[-1].y == w.y:
+            prev = collapsed[-1]
+            collapsed[-1] = CropWindow(prev.t_start, w.t_end, prev.x, prev.y, crop_w, crop_h)
+        else:
+            collapsed.append(w)
+    return CropPlan(src_w, src_h, out_w, out_h, "dynamic", collapsed)
 
 
 def build_crop_plan(
@@ -231,6 +409,7 @@ def build_crop_plan(
     subject_y_frac: Optional[float] = None,
     pan_x: Optional[float] = None,
     pan_y: Optional[float] = None,
+    lock: str = "none",
 ) -> CropPlan:
     """Build a crop plan from subject centres.
 
@@ -260,7 +439,26 @@ def build_crop_plan(
         pan_y:              INI-091 manual pan. Crop CENTRE y as a normalized source
                             fraction (0–1); overrides subject_y_frac. None keeps the
                             subject-derived / centred vertical anchor.
+        lock:               INI-091 Phase 5 *Composition Lock* (dynamic only):
+                            "none" (default) | "x" | "y" | "both".
+                              - "none" keeps the legacy semantics exactly: an explicit
+                                pan_x pins the clip to a single static window, and the
+                                dynamic follow (when no pan_x) smooths X onto the
+                                subject with a fixed Y.
+                              - "x"/"y"/"both" engage the composition lock. The box's
+                                pan_x/pan_y establish the subject's RELATIVE placement
+                                in the crop (captured against the subject reference at
+                                box-set time); each *locked* axis then moves the crop to
+                                hold that relative placement as the subject moves
+                                (smoothed + velocity-capped + clamped), while an
+                                *unlocked* axis stays fixed at the box's pan on that
+                                axis. Unlocking both is equivalent to Static. The lock
+                                path requires pan_x/pan_y (the set box); missing pans
+                                default to the centre (0.5).
     """
+    if lock not in ("none", "x", "y", "both"):
+        raise ValueError(f"unknown lock: {lock!r}")
+
     crop_w, crop_h = crop_dims(src_w, src_h, out_w, out_h)
     if scale > 1.0:
         # Punch in: a smaller crop of the same aspect, scaled up to the output.
@@ -270,6 +468,18 @@ def build_crop_plan(
     y = _crop_y(subjects, src_h, crop_h, subject_y_frac, pan_y=pan_y)
 
     confident = [s for s in subjects if s.confidence > 0]
+
+    # ── Phase 5: Composition Lock ────────────────────────────────────────────────
+    # A lock engages the dynamic follow on the locked axis/axes, holding the subject's
+    # relative placement in the set box. It supersedes the legacy "pan pins to static"
+    # rule (which is only the lock == "none" behaviour) — under a lock the pan is the
+    # relative anchor reference, not a fixed framing.
+    if mode == "dynamic" and lock in ("x", "y", "both"):
+        return _lock_plan(
+            subjects, confident, src_w, src_h, out_w, out_h, crop_w, crop_h,
+            y, duration, lock, pan_x, pan_y,
+            grid_fps, smoothing_seconds, max_pan_frac_per_s, simplify_tol_px,
+        )
 
     # An explicit horizontal pan is a fixed manual framing: the crop x is pinned, so
     # the dynamic follow is bypassed and a single static window carries the pan.
@@ -292,21 +502,11 @@ def build_crop_plan(
     # 2. dense uniform grid + linear interpolation across detection gaps
     n_steps = max(2, int(math.ceil((t_end - t0) * grid_fps)) + 1)
     grid = [t0 + i * (t_end - t0) / (n_steps - 1) for i in range(n_steps)]
-    dense = _interp(grid, conf_t, conf_c)
-
-    # 3. zero-phase smoothing
     dt = (t_end - t0) / (n_steps - 1)
-    alpha = 1.0 - math.exp(-dt / max(smoothing_seconds, 1e-6))
-    dense = _ema_zero_phase(dense, alpha)
-
-    # 4. velocity cap (bounded pan speed -> a far move eases over more time)
     max_step = max_pan_frac_per_s * src_w * dt
-    for i in range(1, len(dense)):
-        lo, hi = dense[i - 1] - max_step, dense[i - 1] + max_step
-        dense[i] = min(max(dense[i], lo), hi)
-    for i in range(len(dense) - 2, -1, -1):  # backward pass keeps it symmetric
-        lo, hi = dense[i + 1] - max_step, dense[i + 1] + max_step
-        dense[i] = min(max(dense[i], lo), hi)
+
+    # 3-4. dense interpolation across gaps + zero-phase smoothing + velocity cap
+    dense = _smooth_centre_track(conf_t, conf_c, grid, dt, smoothing_seconds, max_step)
 
     # 5. simplify to a few linear keyframes
     keep = _douglas_peucker(grid, dense, simplify_tol_px)

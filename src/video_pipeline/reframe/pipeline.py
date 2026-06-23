@@ -169,12 +169,27 @@ def crop_plan_from_def(
     """Build the crop plan from a ``reframe.def`` — Render's pure core.
 
     The def's framing model pins the crop centre (``pan_x``/``pan_y``) and punch-in
-    (``scale``); :func:`build_crop_plan` consumes them as the manual-pan override so the
-    constructed plan reproduces :func:`geometry_from_def` exactly. ``subjects`` (the
-    persisted track) is passed through for occupancy/diagnostics but does NOT move the
-    crop — the def's framing is authoritative.
+    (``scale``). For a **static** def (or a dynamic def with no lock) the framing is the
+    whole geometry: :func:`build_crop_plan` consumes ``pan_x``/``pan_y`` as the manual-pan
+    override so the plan reproduces :func:`geometry_from_def` exactly, and ``subjects``
+    (the persisted track) is passed through for occupancy/diagnostics only — it does NOT
+    move the crop.
+
+    For a **dynamic def with a composition lock** (INI-091 Phase 5) the framing model's
+    ``pan_x``/``pan_y`` are the *set box* (the relative-placement anchor) and the
+    persisted ``subjects`` track drives the follow on the locked axis/axes. The def's
+    geometry is still authoritative — the box and the track are exactly what Propose
+    captured, so Render is deterministic.
     """
     subs = list(subjects) if subjects is not None else []
+    if rdef.mode == "dynamic" and rdef.lock in ("x", "y", "both"):
+        return build_crop_plan(
+            subs, src_w, src_h, out_w=out_w, out_h=out_h,
+            mode="dynamic", lock=rdef.lock, duration=rdef.duration,
+            scale=rdef.framing.scale,
+            pan_x=rdef.framing.pan_x,
+            pan_y=rdef.framing.pan_y,
+        )
     return build_crop_plan(
         subs, src_w, src_h, out_w=out_w, out_h=out_h,
         mode="static", duration=rdef.duration,

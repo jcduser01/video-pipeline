@@ -56,6 +56,9 @@ def reframe(
     subject_y_frac: Optional[float] = None,
     occupancy_out: Optional[str] = None,
     caption_position: Optional[str] = None,
+    lock: str = "none",
+    pan_x: Optional[float] = None,
+    pan_y: Optional[float] = None,
 ) -> list:
     """Reframe one clip. Returns the FFmpeg argv (and runs it unless dry_run).
 
@@ -69,6 +72,10 @@ def reframe(
     ``scale`` / ``subject_y_frac`` apply the framing crop. If ``occupancy_out`` is set,
     the subject's footprint in the reframed frame is written there for the caption
     layer to dodge.
+
+    ``lock`` (INI-091 Phase 5) engages the dynamic Composition Lock ("none" | "x" | "y"
+    | "both"); ``pan_x``/``pan_y`` are the set box (the relative-placement anchor) the
+    lock holds. They thread straight through to :func:`plan.build_crop_plan`.
     """
     if tracker is None:
         if tracker_name == "mediapipe":
@@ -87,7 +94,7 @@ def reframe(
     subjects = tracker.track(input_path)
     plan = build_crop_plan(
         subjects, src_w, src_h, out_w=out_w, out_h=out_h, mode=mode, duration=duration,
-        scale=scale, subject_y_frac=subject_y_frac,
+        scale=scale, subject_y_frac=subject_y_frac, lock=lock, pan_x=pan_x, pan_y=pan_y,
     )
     if occupancy_out:
         from .occupancy import subject_occupancy_windows, write_occupancy

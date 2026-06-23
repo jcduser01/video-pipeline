@@ -21,7 +21,7 @@ from .tracker import (
     OpenCVFaceTracker,
     MediaPipeTracker,
 )
-from .plan import CropPlan, CropWindow, build_crop_plan
+from .plan import CropPlan, CropWindow, build_crop_plan, sample_x, sample_y
 from .crop import ffmpeg_crop_command
 from .model import (
     FramingModel,
@@ -54,6 +54,8 @@ __all__ = [
     "CropPlan",
     "CropWindow",
     "build_crop_plan",
+    "sample_x",
+    "sample_y",
     "ffmpeg_crop_command",
     # INI-091 Phase 3 — framing model + reframe.def + propose/render split
     "FramingModel",
