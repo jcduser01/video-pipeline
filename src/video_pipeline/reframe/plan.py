@@ -177,14 +177,20 @@ def _crop_y(
     src_h: int,
     crop_h: int,
     subject_y_frac: Optional[float],
+    pan_y: Optional[float] = None,
 ) -> int:
     """Top edge of the crop window.
 
-    ``subject_y_frac`` (INI-090 framing) anchors the subject's vertical centre at
-    that fraction of the crop height; ``None`` centres the crop (legacy). Either way
-    the result is clamped so the window stays inside the source frame — so a
-    full-height crop (no vertical slack) is always ``y == 0``.
+    ``pan_y`` (INI-091 manual pan) — when given — is the crop *centre* as a normalized
+    source fraction (0–1); it overrides the subject-derived anchor entirely. Otherwise
+    ``subject_y_frac`` (INI-090 framing) anchors the subject's vertical centre at that
+    fraction of the crop height; ``None`` centres the crop (legacy). Either way the
+    result is clamped so the window stays inside the source frame — so a full-height
+    crop (no vertical slack) is always ``y == 0``.
     """
+    if pan_y is not None:
+        y = int(round(pan_y * src_h - crop_h / 2))
+        return min(max(y, 0), max(0, src_h - crop_h))
     if subject_y_frac is None:
         return (src_h - crop_h) // 2
     cys = [s.cy for s in subjects if s.confidence > 0]
@@ -195,8 +201,11 @@ def _crop_y(
 
 # ── plan builders ─────────────────────────────────────────────────────────────
 
-def _static_plan(subjects, src_w, src_h, out_w, out_h, crop_w, crop_h, y, duration) -> CropPlan:
-    cx = _robust_center(subjects, src_w)
+def _static_plan(subjects, src_w, src_h, out_w, out_h, crop_w, crop_h, y, duration,
+                 pan_x=None) -> CropPlan:
+    # pan_x (INI-091 manual pan) is the crop centre as a normalized source fraction;
+    # it overrides the subject-derived centre. None keeps the legacy robust centre.
+    cx = pan_x * src_w if pan_x is not None else _robust_center(subjects, src_w)
     x = window_x(cx, crop_w, src_w)
     t_start = subjects[0].t if subjects else 0.0
     t_end = duration if duration is not None else (subjects[-1].t if subjects else 0.0)
@@ -220,6 +229,8 @@ def build_crop_plan(
     duration: Optional[float] = None,
     scale: float = 1.0,
     subject_y_frac: Optional[float] = None,
+    pan_x: Optional[float] = None,
+    pan_y: Optional[float] = None,
 ) -> CropPlan:
     """Build a crop plan from subject centres.
 
@@ -241,6 +252,14 @@ def build_crop_plan(
         subject_y_frac:     where the subject's vertical centre sits in the crop
                             (0=top, 1=bottom). Only bites when crop_h < src_h.
                             None keeps the legacy centred crop.
+        pan_x:              INI-091 manual pan. Crop CENTRE x as a normalized source
+                            fraction (0–1); overrides the subject-derived centre. None
+                            keeps subject-derived centring (the default). In dynamic
+                            mode an explicit pan_x pins the whole clip to that x (a
+                            manual pan is a deliberate fixed framing, not a follow).
+        pan_y:              INI-091 manual pan. Crop CENTRE y as a normalized source
+                            fraction (0–1); overrides subject_y_frac. None keeps the
+                            subject-derived / centred vertical anchor.
     """
     crop_w, crop_h = crop_dims(src_w, src_h, out_w, out_h)
     if scale > 1.0:
@@ -248,12 +267,15 @@ def build_crop_plan(
         crop_w = min(src_w, max(2, int(round(crop_w / scale / 2)) * 2))
         crop_h = min(src_h, max(2, int(round(crop_h / scale / 2)) * 2))
     # scale <= 1.0 keeps the native (widest no-fill) crop.
-    y = _crop_y(subjects, src_h, crop_h, subject_y_frac)
+    y = _crop_y(subjects, src_h, crop_h, subject_y_frac, pan_y=pan_y)
 
     confident = [s for s in subjects if s.confidence > 0]
 
-    if mode == "static" or len(confident) < 2:
-        return _static_plan(subjects, src_w, src_h, out_w, out_h, crop_w, crop_h, y, duration)
+    # An explicit horizontal pan is a fixed manual framing: the crop x is pinned, so
+    # the dynamic follow is bypassed and a single static window carries the pan.
+    if mode == "static" or len(confident) < 2 or pan_x is not None:
+        return _static_plan(subjects, src_w, src_h, out_w, out_h, crop_w, crop_h, y,
+                            duration, pan_x=pan_x)
 
     if mode != "dynamic":
         raise ValueError(f"unknown mode: {mode!r}")

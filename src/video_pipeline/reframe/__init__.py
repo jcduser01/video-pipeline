@@ -23,6 +23,27 @@ from .tracker import (
 )
 from .plan import CropPlan, CropWindow, build_crop_plan
 from .crop import ffmpeg_crop_command
+from .model import (
+    FramingModel,
+    CropGeometry,
+    ZoomClamp,
+    ResolutionReadout,
+    model_to_window,
+    window_to_model,
+    max_zoom,
+    clamp_scale,
+    resolution_readout,
+    propose_framing,
+)
+from .decision import ReframeDef
+from .track_io import write_track, read_track
+from .pipeline import (
+    propose,
+    propose_from_subjects,
+    crop_plan_from_def,
+    geometry_from_def,
+    render_inputs_from_def,
+)
 
 __all__ = [
     "FrameSubject",
@@ -34,4 +55,23 @@ __all__ = [
     "CropWindow",
     "build_crop_plan",
     "ffmpeg_crop_command",
+    # INI-091 Phase 3 — framing model + reframe.def + propose/render split
+    "FramingModel",
+    "CropGeometry",
+    "ZoomClamp",
+    "ResolutionReadout",
+    "model_to_window",
+    "window_to_model",
+    "max_zoom",
+    "clamp_scale",
+    "resolution_readout",
+    "propose_framing",
+    "ReframeDef",
+    "write_track",
+    "read_track",
+    "propose",
+    "propose_from_subjects",
+    "crop_plan_from_def",
+    "geometry_from_def",
+    "render_inputs_from_def",
 ]
