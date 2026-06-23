@@ -46,6 +46,13 @@ PNG and re-run `safezone-gen` — no code change.
 
 ## 3. Reframe probe
 
+> **Extended since.** This documents reframe as delivered in Phase 1 (a
+> portrait-only probe). It was later generalized to arbitrary aspect/resolution
+> targets (INI-090) and split into a propose/render pair driven by an editable
+> `reframe.def`, with framing intents and a composition lock (INI-091). For the
+> current reframe subsystem see [`reframe.md`](reframe.md); the three layers below
+> still describe the tracker → plan → crop core that underlies it.
+
 `src/video_pipeline/reframe/` does landscape → portrait auto-reframe, in three
 separable layers:
 

@@ -1,10 +1,10 @@
 # video-pipeline
 
-AI **pre-editing** pipeline for vertical short-form video (Instagram Reels first;
-other targets are profiles, not forks). The pipeline does the mechanical labor —
-cut to length, reframe to vertical, caption, place overlays inside the safe zone
-— and hands off an **editable project** (FCPXML → Premiere Pro). Pacing, taste,
-transitions, and music placement stay with the editor.
+AI **pre-editing** pipeline for short-form video (Instagram Reels first; other
+targets are aspect/resolution presets, not forks). The pipeline does the mechanical
+labor — cut to length, reframe to the target format, caption, place overlays inside
+the safe zone — and hands off an **editable project** (FCPXML → Premiere Pro).
+Pacing, taste, transitions, and music placement stay with the editor.
 
 > The edit-decision artifacts are the product; renders are regenerable views of
 > them. You review and adjust a plain-text file, then re-render — the source
@@ -14,7 +14,7 @@ transitions, and music placement stay with the editor.
 
 | Phase | What | State |
 |---|---|---|
-| 1 — Probe | Repo scaffold + project contract; safe-zone spec generator (template PNG → notch-aware polygon/mask); reframe probe (subject tracking → FFmpeg vertical crop) | ✅ accepted on real footage |
+| 1 — Probe | Repo scaffold + project contract; safe-zone spec generator (template PNG → notch-aware polygon/mask); reframe (subject tracking → FFmpeg crop). Since generalized to **multi-target** (7 aspect presets + resolution tiers/Auto + framing intents) and split into a propose/render pair driven by an editable `reframe.def` with a composition lock — see [`docs/reframe.md`](docs/reframe.md) | ✅ accepted on real footage |
 | 2 — Rough cut | Transcription seam (mlx-whisper) + silence fallback; pure proposer (filler / false-start / dead-air, honors `trim_filler`); **editable decision file** (the product); FFmpeg trim/concat render | ✅ accepted on real footage |
 | 3 — Captions | Glossary-corrected 2–4-word chunker (timing layer); **editable caption file** (the product); safe-zone-aware placement; SRT export; **Remotion** styled-overlay renderer (style layer) driven by a props contract; layered caption-style config | ✅ accepted on real footage |
 | 4 — Safe-zone QC | Validate a frame layout against the derived safe polygon (notch included): flag captions/logos/CTAs intruding on the danger region, captions over the speaker's face, and faces in the danger region; **QC report** (JSON + printable) + **danger-zone preview** + **clean render** | ✅ built (pure logic tested; face detection + FFmpeg burn-in are the local acceptance gate) |
@@ -78,8 +78,18 @@ video-pipeline safezone-gen config/safezone/instagram-safe-zone-reels-9x16.png \
 video-pipeline project-init "2026-06-03 Reel Project - Working Title" \
     --identity <identity> --profile reels-9x16
 
-# 3. Reframe a landscape clip to vertical (needs ffmpeg; --dry-run prints the cmd)
-video-pipeline reframe source/clip.mp4 -o out/clip-9x16.mp4 --profile reels-9x16
+# 3. Reframe to the target format (needs ffmpeg; --dry-run prints the cmd).
+#    One-shot (track + render). --aspect/--resolution/--framing set the target;
+#    omitting --aspect falls back to the legacy fixed-dimension --profile.
+video-pipeline reframe source/clip.mp4 -o out/clip-9x16.mp4 \
+    --aspect full-portrait --resolution auto --framing performer
+
+# 3a. Or the propose/render split: propose -> editable reframe.def, then render it
+#     (nudge scale/pan in the def, or drag the crop box in the GUI, and re-render).
+#     See docs/reframe.md for the target presets, framing intents, and lock.
+video-pipeline reframe-propose source/clip.mp4 -o work/reframe.json --project .
+video-pipeline reframe-render source/clip.mp4 --reframe-def work/reframe.json \
+    -o out/clip-9x16.mp4 --reframed-out work/reframed.mp4
 
 # 4. Rough cut -> editable decision file (mlx-whisper, or pass --transcript)
 video-pipeline roughcut source/clip.mp4 -o review/decision.yml --render work/rough.mp4
@@ -208,7 +218,10 @@ layered files. The commonly-tuned settings:
 ```yaml
 # project.yml — lives in each project folder
 identity: <identity>     # selects the glossary + caption-style layer
-profile: reels-9x16      # output dimensions + safe-zone spec
+target:                  # the project-level output target (source of truth; INI-091)
+  aspect: full-portrait  #   shape — one of 7 presets (see docs/reframe.md)
+  resolution: auto       #   pixel size — auto | 4k | 1440p | 1080p | 720p
+profile: reels-9x16      # legacy fixed-dimension profile (used when target.aspect absent)
 
 rough_cut:
   trim_filler: true      # false = no speech-based cuts (preserves audio continuity)
@@ -274,8 +287,9 @@ config/glossary/                  layered caption vocabulary (global + per-ident
 config/caption-styles/            layered caption style/chunk config (global + per-identity)
 remotion/                         Remotion caption renderer (style layer; Node)
 src/video_pipeline/
+  target_format.py                aspect presets + resolution tiers + Auto resolver
   safezone/                       template PNG -> SafeZoneSpec (polygon + bands)
-  reframe/                        tracker (seam) -> crop plan -> ffmpeg command
+  reframe/                        tracker -> framing model -> editable reframe.def -> ffmpeg crop (propose/render)
   roughcut/                       transcript seam -> propose -> decision file -> render
   captions/                       chunk (timing) -> caption file -> placement/export -> Remotion (style)
   overlay/                        timed/placed overlay layer + overlay.def + occupancy; window proposer; card producer (capture -> content -> Remotion card)
@@ -285,6 +299,8 @@ src/video_pipeline/
   glossary.py  cli.py
 tests/                            unittest/pytest suite (runs without native deps)
 docs/phase1.md … phase5.md        what each phase delivers + acceptance steps
+docs/reframe.md                   multi-target + interactive reframe (INI-090/091)
+docs/ini-089-overlay.md           overlay subsystem; docs/gui-schema.md  GUI schema contract
 ```
 
 Projects are **data**, not code: each lives in its own folder (with `source/` as

@@ -10,6 +10,12 @@ As in Phase 2, the **editable artifact is the product**: the caption file
 is a regenerable view of it. Fix `text:` (or nudge `start`/`end`, flip `keep:`) and
 re-render.
 
+> **Extended since.** INI-088 added per-run caption styling controls (font / size /
+> fill / stroke, a background plate, an explicit horizontal offset, real font
+> loading) and preview-frame grabs on `captions-render`. Those knobs are documented
+> in the project README ("Configuration") and `config/caption-styles/README.md`;
+> this doc covers the Phase-3 timing/placement core.
+
 ## Flow
 
 ```

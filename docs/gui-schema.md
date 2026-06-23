@@ -75,23 +75,29 @@ pipeline-only edit:
 > keep that honest: the assembler must produce a command the CLI accepts, and the
 > contract test fails if the emitted document drifts from what the GUI can parse.
 
-## Current divergence from the SADD example
+## The schema grows by content, not grammar
 
-The architecture document sketches a dedicated **`overlay`** step (a separate
-overlay producer whose occupancy a caption placer reads to dodge it). **That step
-does not exist yet.** Today the **captions-render** task is the overlay-equivalent:
-it renders the styled caption layer (the `caption` artifact, a transparent
-HEVC-alpha `.mov`) directly, and safe-zone avoidance is handled by the caption
-placement consuming the safe-zone spec descriptor (`safezone.def`).
+Two large subsystems landed since the SADD example was first sketched, and both
+slotted into the schema as new **content** in `definition.py` — no grammar change,
+no GUI recompile. They are the working proof that the single-source-of-truth model
+holds as the pipeline grows.
 
-When a true overlay step is built, it slots into the schema cleanly as new content
-in `definition.py`, with no grammar change:
+**Overlay subsystem (INI-089) — shipped.** The dedicated overlay step the
+architecture document sketched now exists. `definition.py` emits `overlay.define`
+(author the editable `overlay.def`), `overlay.card` (capture a source card), and
+`overlay.render` (composite the timed/placed overlays and emit the
+`overlay.occupancy` descriptor). The occupancy descriptor is the thin cross-branch
+edge: caption placement and safe-zone QC read *where* an overlay sits (bounding
+regions / coverage), never its pixels. Captions are no longer the only overlay
+layer — see [`ini-089-overlay.md`](ini-089-overlay.md).
 
-- a new task producing an **`overlay`** channel (the overlay layer), plus
-- a light **`overlay.occupancy`** descriptor it also emits, which
-- **`caption.render`** then consumes — so the caption placer reads *where* the
-  overlay sits (bounding regions / coverage), never its pixels, keeping the
-  cross-branch edge metadata-weight.
+**Reframe split (INI-090/091) — shipped.** The reframe step is no longer a single
+portrait-only task. `definition.py` emits `reframe.propose` (track the subject →
+editable `reframe.def`) and `reframe.render` (replay the def → reframed clip),
+mirroring the caption define/render pattern, and surfaces the target-format,
+framing-intent, and composition-lock controls. See [`reframe.md`](reframe.md).
 
-Until then, the emitted schema reflects the pipeline as it actually is: captions are
-the overlay layer, and the only spatial descriptor in play is the safe zone.
+Both demonstrate the intended growth path from
+[Adding a step, flag, or export target](#adding-a-step-flag-or-export-target):
+edit `definition.py` to mirror the real CLI, run `schema --check`, relaunch — the
+new tasks, artifacts, and controls appear in the GUI on next launch.
