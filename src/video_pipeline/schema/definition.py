@@ -70,6 +70,12 @@ def _known_identities() -> list[str]:
 
 _IDENTITIES = _known_identities()
 
+# Safe-zone modes surfaced as the safezone.gen `mode` dropdown (INI-091). Pulled
+# from the Python boundary so the options/default match exactly what the CLI +
+# the normalized safe-zone builder accept.
+from ..safezone.normalized import DEFAULT_MODE as _SAFE_ZONE_DEFAULT_MODE  # noqa: E402
+from ..safezone.normalized import SAFE_ZONE_MODES as _SAFE_ZONE_MODES  # noqa: E402
+
 
 def _identity_param(
     *,
@@ -359,24 +365,43 @@ def build_schema() -> Schema:
         io=[
             IOBinding(artifact="safezone.def", role="output", via="flag", flag="-o"),
         ],
-        hint="Derive the safe-zone polygon from a template PNG.",
-        help="Reads a design template where the danger region is marked (by alpha or "
-             "by a key color) and emits the safe-zone spec JSON consumed downstream.",
+        hint="Derive the safe-zone spec (none / generic / custom).",
+        help="Builds the safe-zone spec consumed downstream. INI-091 modes: none "
+             "(full frame is safe), generic (per-aspect conservative insets, the "
+             "default), or custom (trace a design template PNG where the danger "
+             "region is marked by alpha or a key color).",
         params=[
-            Param("template", "path", arity="positional", required=True, order=0,
-                  hint="Template PNG with the danger region marked.",
-                  help="The design template image. The marked region becomes the danger "
-                       "polygon (notch-aware).",
+            # INI-091 safe-zone mode. Options/default come from the Python boundary
+            # (normalized.SAFE_ZONE_MODES / DEFAULT_MODE) so the dropdown matches what
+            # the CLI accepts. The template + region-key controls are conditional on
+            # mode=custom (the only mode that reads a PNG).
+            Param("mode", "enum", flag="--mode",
+                  options=list(_SAFE_ZONE_MODES), default=_SAFE_ZONE_DEFAULT_MODE,
+                  hint="Safe-zone mode.",
+                  help="none = the full frame is safe; generic = per-aspect "
+                       "conservative inset rectangle (the default); custom = trace a "
+                       "template PNG for the exact destination. Generic social safe "
+                       "zones are conservative estimates. For platform-specific "
+                       "publishing, use a safe-zone template for the exact destination "
+                       "platform and placement.",
+                  example="--mode generic",
+                  ui=UI(label="Safe-zone mode", control="dropdown", group="Mode")),
+            Param("template", "path", arity="positional", required=False, order=0,
+                  hint="Template PNG with the danger region marked (custom mode).",
+                  help="The design template image (custom mode only). The marked region "
+                       "becomes the danger polygon (notch-aware).",
                   example="template.png",
                   path=PathSpec(kind="file", extensions=["png", "jpg", "jpeg", "webp"]),
-                  ui=UI(label="Template PNG", group="Input")),
+                  ui=UI(label="Template PNG", group="Input",
+                        depends_on_key="mode", depends_on_equals="custom")),
             _profile_param(required=False, default=None),
             Param("key", "enum", flag="--key", options=["auto", "alpha", "color"],
                   default="auto",
-                  hint="How the danger region is marked.",
+                  hint="How the danger region is marked (custom mode).",
                   help="auto detects alpha vs a key color; force alpha or color if "
                        "detection guesses wrong.",
-                  ui=UI(label="Region key", control="dropdown", group="Input")),
+                  ui=UI(label="Region key", control="dropdown", group="Input",
+                        depends_on_key="mode", depends_on_equals="custom")),
         ],
     ))
 
@@ -423,6 +448,29 @@ def build_schema() -> Schema:
                        "+1 = bottom. Only bites when there is vertical slack (punched "
                        "in, or a source taller than the target). Unset = let Framing decide.",
                   ui=UI(label="Subject Y (override)", control="slider", group="Framing")),
+            # INI-091 Phase 5: set-box pan anchor + composition lock. pan_x/pan_y are
+            # the relative crop placement (0..1) the lock holds; lock=none keeps the
+            # legacy auto-tracked crop.
+            Param("pan_x", "number", flag="--pan-x", min=0.0, max=1.0, step=0.01,
+                  hint="Set-box horizontal anchor (0..1).",
+                  help="Where the crop window sits horizontally: 0 = hard left, 0.5 = "
+                       "centred, 1 = hard right. The set-box placement the composition "
+                       "lock holds on the X axis. Unset = let the tracker decide.",
+                  ui=UI(label="Pan X", control="slider", group="Framing")),
+            Param("pan_y", "number", flag="--pan-y", min=0.0, max=1.0, step=0.01,
+                  hint="Set-box vertical anchor (0..1).",
+                  help="Where the crop window sits vertically: 0 = top, 0.5 = centred, "
+                       "1 = bottom. The set-box placement the composition lock holds on "
+                       "the Y axis. Unset = let the tracker decide.",
+                  ui=UI(label="Pan Y", control="slider", group="Framing")),
+            Param("lock", "enum", flag="--lock", options=["none", "x", "y", "both"],
+                  default="none",
+                  hint="Composition lock axis.",
+                  help="Hold the set-box on the given axis instead of following the "
+                       "subject: none = follow (default), x = hold horizontal, y = hold "
+                       "vertical, both = a fully static composed crop.",
+                  example="--lock both",
+                  ui=UI(label="Composition lock", control="dropdown", group="Framing")),
             Param("dry_run", "bool", arity="switch", flag="--dry-run", default=False,
                   hint="Plan the crop without rendering.",
                   help="Computes and prints the crop plan but writes no video — fast way "

@@ -151,8 +151,44 @@ def _style_overrides_from_args(args: argparse.Namespace) -> dict:
     return out
 
 
+def _resolve_safezone_mode(args: argparse.Namespace) -> str:
+    """Resolve the effective safe-zone mode (INI-091).
+
+    ``--mode`` is honored when set. When it is left unset (terminal back-compat for
+    callers that just pass a template positional), the mode is inferred from the
+    presence of a template: a template present ⇒ ``custom`` (the legacy PNG path);
+    absent ⇒ ``generic`` (the locked default). This keeps every pre-INI-091 caller
+    — ``safezone-gen template.png ...`` — behaving exactly as before.
+    """
+    from .safezone import MODE_CUSTOM, MODE_GENERIC
+
+    mode = getattr(args, "mode", None)
+    if mode:
+        return mode
+    return MODE_CUSTOM if getattr(args, "template", None) else MODE_GENERIC
+
+
+def _safezone_aspect(args: argparse.Namespace, profile: str | None) -> str:
+    """The aspect the generic/none zone is built for (INI-091).
+
+    Precedence: explicit ``--aspect`` → the project Target's aspect (``--project``)
+    → the default aspect. The mode-driven (none/generic) write path needs a real
+    aspect to build a per-aspect inset rectangle and to resolve it to pixels.
+    """
+    from .target_format import DEFAULT_ASPECT
+
+    aspect = getattr(args, "aspect", None)
+    if aspect:
+        return aspect
+    if getattr(args, "project", None):
+        from .manifest import load_manifest
+
+        return load_manifest(args.project).target.aspect
+    return DEFAULT_ASPECT
+
+
 def _cmd_safezone_gen(args: argparse.Namespace) -> int:
-    from .safezone import generate_spec
+    from .safezone import MODE_CUSTOM, generate_spec
 
     # INI-091: when --project is given, the safe zone keys off the SAME project-level
     # target as the reframe (one target drives both). The spec's profile label is the
@@ -163,12 +199,41 @@ def _cmd_safezone_gen(args: argparse.Namespace) -> int:
 
         tgt = load_manifest(args.project).target
         profile = _ASPECT_TO_PROFILE.get(tgt.aspect, "reels-9x16")
-    spec = generate_spec(args.template, profile=profile, key=args.key)
+
+    mode = _resolve_safezone_mode(args)
+
+    # custom — the legacy PNG → polygon path (a template is required + a PNG is read).
+    if mode == MODE_CUSTOM:
+        if not getattr(args, "template", None):
+            print("error: safe-zone mode 'custom' needs a template PNG positional",
+                  file=sys.stderr)
+            return 2
+        spec = generate_spec(args.template, profile=profile, key=args.key)
+        out = args.output or f"{spec.profile}.safezone.json"
+        Path(out).write_text(spec.to_json(), encoding="utf-8")
+        notch = "with notch" if spec.has_notch else "no notch"
+        print(
+            f"wrote {out}  mode=custom  profile={spec.profile}  "
+            f"safe={spec.safe_fraction:.1%}  {notch}  "
+            f"polygon={len(spec.polygon)} verts"
+        )
+        return 0
+
+    # none / generic — resolution-independent normalized zone (no PNG, no Pillow).
+    # Built per-aspect and resolved to the aspect's labeled-default pixel size so the
+    # written spec is a drop-in for the legacy pixel API (caption placement + QC).
+    from .safezone import build_safe_zone
+    from .target_format import default_target
+
+    aspect = _safezone_aspect(args, profile)
+    zone = build_safe_zone(mode, aspect)
+    tgt = default_target(aspect)
+    spec = zone.resolve(tgt.width, tgt.height, profile=profile or aspect)
     out = args.output or f"{spec.profile}.safezone.json"
     Path(out).write_text(spec.to_json(), encoding="utf-8")
     notch = "with notch" if spec.has_notch else "no notch"
     print(
-        f"wrote {out}  profile={spec.profile}  "
+        f"wrote {out}  mode={mode}  aspect={aspect}  profile={spec.profile}  "
         f"safe={spec.safe_fraction:.1%}  {notch}  "
         f"polygon={len(spec.polygon)} verts"
     )
@@ -238,6 +303,11 @@ def _cmd_reframe(args: argparse.Namespace) -> int:
         scale=scale, subject_y_frac=subject_y_frac,
         occupancy_out=getattr(args, "occupancy_out", None),
         caption_position=caption_position,
+        # INI-091 Phase 5: composition lock + set-box pan anchor. Default lock="none"
+        # / pan unset keeps the legacy crop identical.
+        lock=getattr(args, "lock", "none"),
+        pan_x=getattr(args, "pan_x", None),
+        pan_y=getattr(args, "pan_y", None),
     )
     if args.dry_run:
         print("ffmpeg command (dry run):")
@@ -788,11 +858,27 @@ def build_parser() -> argparse.ArgumentParser:
                     help="validate the schema and exit (no emit)")
     sc.set_defaults(func=_cmd_schema)
 
-    g = sub.add_parser("safezone-gen", help="derive a safe-zone spec from a template PNG")
-    g.add_argument("template")
+    g = sub.add_parser("safezone-gen",
+                       help="derive a safe-zone spec (none | generic | custom from a PNG)")
+    # INI-091: the template positional is OPTIONAL now — only `custom` mode reads a
+    # PNG. `none`/`generic` build a resolution-independent per-aspect zone with no
+    # template. When --mode is unset the mode is inferred (template ⇒ custom, else
+    # generic) so every legacy `safezone-gen template.png` invocation is unchanged.
+    g.add_argument("template", nargs="?", default=None,
+                   help="template PNG with the danger region marked (custom mode only)")
+    from .safezone import SAFE_ZONE_MODES as _SZ_MODES
+    g.add_argument("--mode", default=None, choices=sorted(_SZ_MODES),
+                   help="safe-zone mode: none (full frame) | generic (per-aspect "
+                        "conservative insets, the default) | custom (trace a template "
+                        "PNG). Default inferred: a template ⇒ custom, else generic.")
+    from .target_format import ASPECT_PRESETS as _SZ_AP
+    g.add_argument("--aspect", default=None, choices=sorted(_SZ_AP),
+                   help="aspect the none/generic zone is built for (INI-091); "
+                        "defaults to the --project target's aspect, else full-portrait")
     g.add_argument("--project", default=None,
-                   help="project root (or project.yml): derive the spec profile from "
-                        "the project-level target (INI-091); --profile overrides")
+                   help="project root (or project.yml): derive the spec profile + the "
+                        "generic/none aspect from the project-level target (INI-091); "
+                        "--profile / --aspect override")
     g.add_argument("--profile", default=None)
     g.add_argument("--key", default="auto", choices=["auto", "alpha", "color"])
     g.add_argument("-o", "--output", default=None)
@@ -834,6 +920,16 @@ def build_parser() -> argparse.ArgumentParser:
                    help="punch-in override (1.0=widest native full frame; >1 punches in)")
     r.add_argument("--subject-y", type=float, default=None, dest="subject_y",
                    help="vertical anchor override, bipolar (-1=top, 0=centre, +1=bottom)")
+    # INI-091 Phase 5: set-box pan anchor + composition lock. Defaults keep the
+    # legacy auto-tracked crop (lock=none, pan unset) byte-identical.
+    r.add_argument("--pan-x", type=float, default=None, dest="pan_x",
+                   help="set-box horizontal anchor 0..1 (0=left, 1=right); the "
+                        "relative crop placement the lock holds. Unset = auto-track")
+    r.add_argument("--pan-y", type=float, default=None, dest="pan_y",
+                   help="set-box vertical anchor 0..1 (0=top, 1=bottom). Unset = auto-track")
+    r.add_argument("--lock", default="none", choices=["none", "x", "y", "both"],
+                   help="composition lock: hold the set-box on the x / y / both axes "
+                        "instead of following the subject (default none = follow)")
     r.add_argument("--occupancy-out", default=None, dest="occupancy_out",
                    help="write subject occupancy here for the caption layer to dodge")
     r.add_argument("--mode", default="static", choices=["static", "dynamic"])

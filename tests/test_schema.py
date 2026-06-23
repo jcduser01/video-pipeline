@@ -124,9 +124,11 @@ def test_resolve_argv_orders_positionals_and_wires_io_flags():
 
 def test_resolve_argv_raises_on_missing_required():
     sch = S.build_schema()
-    # safezone.gen needs the `template` positional
+    # project.init needs the `name` positional (required). (safezone.gen's template is
+    # optional since INI-091 — only `custom` mode needs it — so it can no longer stand
+    # in for the missing-required case.)
     try:
-        S.resolve_argv(sch, "safezone.gen", {}, {"safezone.def": "sz.json"})
+        S.resolve_argv(sch, "project.init", {}, {"base": "work/base.mp4"})
     except ValueError:
         pass
     else:
